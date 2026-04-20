@@ -96,6 +96,7 @@ import { ScopedModelsSelectorComponent } from "./components/scoped-models-select
 import { SessionSelectorComponent } from "./components/session-selector.js";
 import { SettingsSelectorComponent } from "./components/settings-selector.js";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.js";
+import { SkillSelectorComponent } from "./components/skill-selector.js";
 import { ToolExecutionComponent } from "./components/tool-execution.js";
 import { TreeSelectorComponent } from "./components/tree-selector.js";
 import { UserMessageComponent } from "./components/user-message.js";
@@ -448,23 +449,17 @@ export class InteractiveMode {
 			getArgumentCompletions: cmd.getArgumentCompletions,
 		}));
 
-		// Build skill commands from session.skills (if enabled)
+		// Keep the skill command map in sync for /skill:name resolution.
+		// Skills are browsed through /skills instead of being registered as individual autocomplete entries.
 		this.skillCommands.clear();
-		const skillCommandList: SlashCommand[] = [];
-		if (this.settingsManager.getEnableSkillCommands()) {
-			for (const skill of this.session.resourceLoader.getSkills().skills) {
-				const commandName = `skill:${skill.name}`;
-				this.skillCommands.set(commandName, skill.filePath);
-				skillCommandList.push({
-					name: commandName,
-					description: this.prefixAutocompleteDescription(skill.description, skill.sourceInfo),
-				});
-			}
+		for (const skill of this.session.resourceLoader.getSkills().skills) {
+			const commandName = `skill:${skill.name}`;
+			this.skillCommands.set(commandName, skill.filePath);
 		}
 
 		// Setup autocomplete
 		this.autocompleteProvider = new CombinedAutocompleteProvider(
-			[...slashCommands, ...templateCommands, ...extensionCommands, ...skillCommandList],
+			[...slashCommands, ...templateCommands, ...extensionCommands],
 			this.sessionManager.getCwd(),
 			fdPath,
 		);
@@ -2463,6 +2458,12 @@ export class InteractiveMode {
 				await this.handleReloadCommand();
 				return;
 			}
+			if (text === "/skills" || text.startsWith("/skills ")) {
+				const searchTerm = text.startsWith("/skills ") ? text.slice(8).trim() : undefined;
+				this.editor.setText("");
+				await this.handleSkillsCommand(searchTerm);
+				return;
+			}
 			if (text === "/debug") {
 				this.handleDebugCommand();
 				this.editor.setText("");
@@ -3652,7 +3653,6 @@ export class InteractiveMode {
 					showImages: this.settingsManager.getShowImages(),
 					autoResizeImages: this.settingsManager.getImageAutoResize(),
 					blockImages: this.settingsManager.getBlockImages(),
-					enableSkillCommands: this.settingsManager.getEnableSkillCommands(),
 					steeringMode: this.session.steeringMode,
 					followUpMode: this.session.followUpMode,
 					transport: this.settingsManager.getTransport(),
@@ -3689,10 +3689,6 @@ export class InteractiveMode {
 					},
 					onBlockImagesChange: (blocked) => {
 						this.settingsManager.setBlockImages(blocked);
-					},
-					onEnableSkillCommandsChange: (enabled) => {
-						this.settingsManager.setEnableSkillCommands(enabled);
-						this.setupAutocomplete(this.fdPath);
 					},
 					onSteeringModeChange: (mode) => {
 						this.session.setSteeringMode(mode);
@@ -3888,6 +3884,56 @@ export class InteractiveMode {
 				},
 				initialSearchInput,
 			);
+			return { component: selector, focus: selector };
+		});
+	}
+
+	private async handleSkillsCommand(searchTerm?: string): Promise<void> {
+		const skills = this.session.resourceLoader.getSkills().skills;
+		if (skills.length === 0) {
+			this.showStatus("No skills available");
+			return;
+		}
+
+		if (searchTerm) {
+			const exactMatch = skills.find((skill) => skill.name === searchTerm);
+			if (exactMatch) {
+				const submit = this.defaultEditor.onSubmit;
+				if (submit) {
+					await submit(`/skill:${exactMatch.name}`);
+					return;
+				}
+
+				this.editor.setText(`/skill:${exactMatch.name} `);
+				return;
+			}
+		}
+
+		this.showSkillSelector(searchTerm);
+	}
+
+	private showSkillSelector(initialFilter?: string): void {
+		const skills = this.session.resourceLoader.getSkills().skills;
+		if (skills.length === 0) {
+			this.showStatus("No skills available");
+			return;
+		}
+
+		this.showSelector((done) => {
+			const selector = new SkillSelectorComponent(
+				skills,
+				(skillName) => {
+					done();
+					this.editor.setText(`/skill:${skillName} `);
+					this.ui.requestRender();
+				},
+				() => {
+					done();
+					this.ui.requestRender();
+				},
+				initialFilter,
+			);
+
 			return { component: selector, focus: selector };
 		});
 	}

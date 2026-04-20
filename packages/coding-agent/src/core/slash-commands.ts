@@ -33,6 +33,7 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "new", description: "Start a new session" },
 	{ name: "compact", description: "Manually compact the session context" },
 	{ name: "resume", description: "Resume a different session" },
+	{ name: "skills", description: "Browse and select a skill" },
 	{ name: "reload", description: "Reload keybindings, extensions, skills, prompts, and themes" },
 	{ name: "quit", description: "Quit pi" },
 ];
