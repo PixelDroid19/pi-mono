@@ -27,8 +27,8 @@ async function captureOpenAIResponseHeaders(
 ): Promise<{ sessionId: string | null; clientRequestId: string | null }> {
 	const captured = { sessionId: null as string | null, clientRequestId: null as string | null };
 	vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
-		captured.sessionId = getHeader(init?.headers, "session_id");
-		captured.clientRequestId = getHeader(init?.headers, "x-client-request-id");
+		captured.sessionId = getHeader(init?.headers as CapturedHeaders, "session_id");
+		captured.clientRequestId = getHeader(init?.headers as CapturedHeaders, "x-client-request-id");
 		return new Response("data: [DONE]\n\n", {
 			status: 200,
 			headers: { "content-type": "text/event-stream" },

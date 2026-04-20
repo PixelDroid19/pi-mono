@@ -89,6 +89,7 @@ export class RuntimeMessageRouter {
 			}
 
 			// Remove user script listener
+			// biome-ignore lint/complexity/useOptionalChain: typeof guard prevents ReferenceError when chrome is undeclared
 			if (this.userScriptMessageListener && typeof chrome !== "undefined" && chrome.runtime?.onUserScriptMessage) {
 				chrome.runtime.onUserScriptMessage.removeListener(this.userScriptMessageListener);
 				this.userScriptMessageListener = null;
