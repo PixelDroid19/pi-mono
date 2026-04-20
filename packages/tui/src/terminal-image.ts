@@ -1,8 +1,9 @@
 /**
- * Re-export shim -- terminal image support now lives in media/terminal-image.ts.
+ * Compatibility shim — terminal image support now lives in `media/terminal-image.ts`.
  *
- * This file exists so that internal imports like `from "../terminal-image.js"`
- * continue to resolve without updating every consumer.
+ * Internal consumers import from `"../terminal-image.js"`. This shim re-exports
+ * the canonical location so existing imports continue to resolve.
+ * Do NOT remove until a separate approved deprecation change.
  */
 export {
 	allocateImageId,

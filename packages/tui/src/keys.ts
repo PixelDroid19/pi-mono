@@ -1,8 +1,9 @@
 /**
- * Re-export shim — all keyboard input handling now lives in input/.
+ * Compatibility shim — keyboard input handling now lives in `input/`.
  *
- * This file exists so that internal imports like `from "../keys.js"` continue
- * to resolve without updating every consumer.
+ * Internal consumers import from `"../keys.js"`. This shim re-exports
+ * the canonical locations so existing imports continue to resolve.
+ * Do NOT remove until a separate approved deprecation change.
  */
 export { Key, type KeyId } from "./input/key-types.js";
 export { isKittyProtocolActive, matchesKey, parseKey, setKittyProtocolActive } from "./input/keys.js";

@@ -4,38 +4,39 @@ import { decodeKittyPrintable, matchesKey } from "../keys.js";
 import { KillRing } from "../kill-ring.js";
 import { type Component, CURSOR_MARKER, type Focusable, type TUI } from "../tui.js";
 import { UndoStack } from "../undo-stack.js";
-import { isPunctuationChar, isWhitespaceChar, truncateToWidth, visibleWidth } from "../utils.js";
+import { isWhitespaceChar, truncateToWidth, visibleWidth } from "../utils.js";
 import {
 	buildVisualLineMap as buildVisualLineMapFn,
 	computeVerticalMoveColumn as computeVerticalMoveColumnFn,
 	findVisualLineAt as findVisualLineAtFn,
 	type VisualLine,
 } from "./editor-cursor-nav.js";
-import { isPasteMarker, segmentWithMarkers, wordWrapLine } from "./editor-word-wrap.js";
+import { type LayoutLine, layoutText } from "./editor-layout.js";
+import { wordBoundaryBackward, wordBoundaryForward } from "./editor-word-nav.js";
+import { segmentWithMarkers } from "./editor-word-wrap.js";
 import { SelectList, type SelectListLayoutOptions, type SelectListTheme } from "./select-list.js";
 
 // Re-export for backward compatibility (these were previously exported from this file)
 export type { TextChunk } from "./editor-word-wrap.js";
 export { wordWrapLine } from "./editor-word-wrap.js";
 
-// Kitty CSI-u sequences for printable keys, including optional shifted/base codepoints.
+/**
+ * Snapshot of the editor's text and cursor position.
+ * Used for undo snapshots, history navigation, and cursor movement calculations.
+ */
 interface EditorState {
 	lines: string[];
 	cursorLine: number;
 	cursorCol: number;
 }
 
-interface LayoutLine {
-	text: string;
-	hasCursor: boolean;
-	cursorPos?: number;
-}
-
+/** Color and style functions for the editor chrome (border, autocomplete list). */
 export interface EditorTheme {
 	borderColor: (str: string) => string;
 	selectList: SelectListTheme;
 }
 
+/** Configurable layout and behavior options for the Editor component. */
 export interface EditorOptions {
 	paddingX?: number;
 	autocompleteMaxVisible?: number;
@@ -48,6 +49,13 @@ const SLASH_COMMAND_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
 
 const ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS = 20;
 
+/**
+ * Multi-line text editor component with word-wrapping, autocomplete,
+ * kill-ring, undo, prompt history, and paste-marker support.
+ *
+ * Public API surface: getText, setText, insertTextAtCursor, getExpandedText,
+ * getLines, getCursor, addToHistory, render, handleInput, onSubmit, onChange.
+ */
 export class Editor implements Component, Focusable {
 	private state: EditorState = {
 		lines: [""],
@@ -102,14 +110,24 @@ export class Editor implements Component, Focusable {
 	// Character jump mode
 	private jumpMode: "forward" | "backward" | null = null;
 
-	// Preferred visual column for vertical cursor movement (sticky column)
+	/**
+	 * Preferred visual column for vertical cursor movement (sticky column).
+	 *
+	 * When the user moves up/down to a shorter visual line, the cursor is
+	 * clamped to the line end and this field remembers the original column.
+	 * On the next vertical move to a sufficiently long line the cursor
+	 * snaps back to this column, then the field is cleared. See
+	 * {@link computeVerticalMoveColumn} for the full decision table.
+	 */
 	private preferredVisualCol: number | null = null;
 
-	// When the cursor is snapped to the start of an atomic segment, e.g. a
-	// paste marker, cursorCol no longer reflects where the cursor would have
-	// landed. This field stores the pre-snap cursorCol so that the next
-	// vertical move can resolve it to a visual column on whatever VL it belongs
-	// to.
+	/**
+	 * When the cursor is snapped to the start of an atomic segment, e.g. a
+	 * paste marker, cursorCol no longer reflects where the cursor would have
+	 * landed. This field stores the pre-snap cursorCol so that the next
+	 * vertical move can resolve it to a visual column on whatever VL it
+	 * belongs to. Cleared whenever a non-vertical movement occurs.
+	 */
 	private snappedFromCursorCol: number | null = null;
 
 	// Undo support
@@ -654,91 +672,9 @@ export class Editor implements Component, Focusable {
 	}
 
 	private layoutText(contentWidth: number): LayoutLine[] {
-		const layoutLines: LayoutLine[] = [];
-
-		if (this.state.lines.length === 0 || (this.state.lines.length === 1 && this.state.lines[0] === "")) {
-			// Empty editor
-			layoutLines.push({
-				text: "",
-				hasCursor: true,
-				cursorPos: 0,
-			});
-			return layoutLines;
-		}
-
-		// Process each logical line
-		for (let i = 0; i < this.state.lines.length; i++) {
-			const line = this.state.lines[i] || "";
-			const isCurrentLine = i === this.state.cursorLine;
-			const lineVisibleWidth = visibleWidth(line);
-
-			if (lineVisibleWidth <= contentWidth) {
-				// Line fits in one layout line
-				if (isCurrentLine) {
-					layoutLines.push({
-						text: line,
-						hasCursor: true,
-						cursorPos: this.state.cursorCol,
-					});
-				} else {
-					layoutLines.push({
-						text: line,
-						hasCursor: false,
-					});
-				}
-			} else {
-				// Line needs wrapping - use word-aware wrapping
-				const chunks = wordWrapLine(line, contentWidth, [...this.segment(line)]);
-
-				for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-					const chunk = chunks[chunkIndex];
-					if (!chunk) continue;
-
-					const cursorPos = this.state.cursorCol;
-					const isLastChunk = chunkIndex === chunks.length - 1;
-
-					// Determine if cursor is in this chunk
-					// For word-wrapped chunks, we need to handle the case where
-					// cursor might be in trimmed whitespace at end of chunk
-					let hasCursorInChunk = false;
-					let adjustedCursorPos = 0;
-
-					if (isCurrentLine) {
-						if (isLastChunk) {
-							// Last chunk: cursor belongs here if >= startIndex
-							hasCursorInChunk = cursorPos >= chunk.startIndex;
-							adjustedCursorPos = cursorPos - chunk.startIndex;
-						} else {
-							// Non-last chunk: cursor belongs here if in range [startIndex, endIndex)
-							// But we need to handle the visual position in the trimmed text
-							hasCursorInChunk = cursorPos >= chunk.startIndex && cursorPos < chunk.endIndex;
-							if (hasCursorInChunk) {
-								adjustedCursorPos = cursorPos - chunk.startIndex;
-								// Clamp to text length (in case cursor was in trimmed whitespace)
-								if (adjustedCursorPos > chunk.text.length) {
-									adjustedCursorPos = chunk.text.length;
-								}
-							}
-						}
-					}
-
-					if (hasCursorInChunk) {
-						layoutLines.push({
-							text: chunk.text,
-							hasCursor: true,
-							cursorPos: adjustedCursorPos,
-						});
-					} else {
-						layoutLines.push({
-							text: chunk.text,
-							hasCursor: false,
-						});
-					}
-				}
-			}
-		}
-
-		return layoutLines;
+		return layoutText(this.state.lines, this.state.cursorLine, this.state.cursorCol, contentWidth, (text) =>
+			this.segment(text),
+		);
 	}
 
 	getText(): string {
@@ -1492,45 +1428,7 @@ export class Editor implements Component, Focusable {
 
 		const textBeforeCursor = currentLine.slice(0, this.state.cursorCol);
 		const graphemes = [...this.segment(textBeforeCursor)];
-		let newCol = this.state.cursorCol;
-
-		// Skip trailing whitespace
-		while (
-			graphemes.length > 0 &&
-			!isPasteMarker(graphemes[graphemes.length - 1]?.segment || "") &&
-			isWhitespaceChar(graphemes[graphemes.length - 1]?.segment || "")
-		) {
-			newCol -= graphemes.pop()?.segment.length || 0;
-		}
-
-		if (graphemes.length > 0) {
-			const lastGrapheme = graphemes[graphemes.length - 1]?.segment || "";
-			if (isPasteMarker(lastGrapheme)) {
-				// Paste marker is a single atomic word
-				newCol -= graphemes.pop()?.segment.length || 0;
-			} else if (isPunctuationChar(lastGrapheme)) {
-				// Skip punctuation run
-				while (
-					graphemes.length > 0 &&
-					isPunctuationChar(graphemes[graphemes.length - 1]?.segment || "") &&
-					!isPasteMarker(graphemes[graphemes.length - 1]?.segment || "")
-				) {
-					newCol -= graphemes.pop()?.segment.length || 0;
-				}
-			} else {
-				// Skip word run
-				while (
-					graphemes.length > 0 &&
-					!isWhitespaceChar(graphemes[graphemes.length - 1]?.segment || "") &&
-					!isPunctuationChar(graphemes[graphemes.length - 1]?.segment || "") &&
-					!isPasteMarker(graphemes[graphemes.length - 1]?.segment || "")
-				) {
-					newCol -= graphemes.pop()?.segment.length || 0;
-				}
-			}
-		}
-
-		this.setCursorCol(newCol);
+		this.setCursorCol(wordBoundaryBackward(graphemes, this.state.cursorCol));
 	}
 
 	/**
@@ -1718,43 +1616,7 @@ export class Editor implements Component, Focusable {
 		}
 
 		const textAfterCursor = currentLine.slice(this.state.cursorCol);
-		const segments = this.segment(textAfterCursor);
-		const iterator = segments[Symbol.iterator]();
-		let next = iterator.next();
-		let newCol = this.state.cursorCol;
-
-		// Skip leading whitespace
-		while (!next.done && !isPasteMarker(next.value.segment) && isWhitespaceChar(next.value.segment)) {
-			newCol += next.value.segment.length;
-			next = iterator.next();
-		}
-
-		if (!next.done) {
-			const firstGrapheme = next.value.segment;
-			if (isPasteMarker(firstGrapheme)) {
-				// Paste marker is a single atomic word
-				newCol += firstGrapheme.length;
-			} else if (isPunctuationChar(firstGrapheme)) {
-				// Skip punctuation run
-				while (!next.done && isPunctuationChar(next.value.segment) && !isPasteMarker(next.value.segment)) {
-					newCol += next.value.segment.length;
-					next = iterator.next();
-				}
-			} else {
-				// Skip word run
-				while (
-					!next.done &&
-					!isWhitespaceChar(next.value.segment) &&
-					!isPunctuationChar(next.value.segment) &&
-					!isPasteMarker(next.value.segment)
-				) {
-					newCol += next.value.segment.length;
-					next = iterator.next();
-				}
-			}
-		}
-
-		this.setCursorCol(newCol);
+		this.setCursorCol(wordBoundaryForward(this.segment(textAfterCursor), this.state.cursorCol));
 	}
 
 	// Slash menu only allowed on the first line of the editor

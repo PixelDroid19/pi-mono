@@ -1,3 +1,11 @@
+/**
+ * Compatibility shim — core TUI types moved to `core/` and `utils.ts`.
+ *
+ * Internal and external consumers import from `"../tui.js"`. This shim
+ * re-exports the canonical locations so existing imports continue to
+ * resolve. Do NOT remove until a separate approved deprecation change.
+ */
+
 // Re-export from new modular locations for backward compatibility
 
 export type {

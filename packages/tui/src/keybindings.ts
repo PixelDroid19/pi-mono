@@ -1,5 +1,9 @@
 /**
- * Re-export shim — keybinding registry now lives in input/keybindings.ts.
+ * Compatibility shim — keybinding registry now lives in `input/keybindings.ts`.
+ *
+ * Internal consumers import from `"../keybindings.js"`. This shim re-exports
+ * the canonical location so existing imports continue to resolve.
+ * Do NOT remove until a separate approved deprecation change.
  */
 export {
 	getKeybindings,

@@ -2,6 +2,7 @@ import { Marked, type Token, Tokenizer, type Tokens } from "marked";
 import { getCapabilities, hyperlink, isImageLine } from "../terminal-image.js";
 import type { Component } from "../tui.js";
 import { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi } from "../utils.js";
+import { extractCombinedStylePrefix, extractStylePrefix } from "./markdown-style.js";
 
 const STRICT_STRIKETHROUGH_REGEX = /^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)/;
 
@@ -245,36 +246,18 @@ export class Markdown implements Component {
 			return this.defaultStylePrefix;
 		}
 
-		const sentinel = "\u0000";
-		let styled = sentinel;
-
-		if (this.defaultTextStyle.color) {
-			styled = this.defaultTextStyle.color(styled);
-		}
-
-		if (this.defaultTextStyle.bold) {
-			styled = this.theme.bold(styled);
-		}
-		if (this.defaultTextStyle.italic) {
-			styled = this.theme.italic(styled);
-		}
-		if (this.defaultTextStyle.strikethrough) {
-			styled = this.theme.strikethrough(styled);
-		}
-		if (this.defaultTextStyle.underline) {
-			styled = this.theme.underline(styled);
-		}
-
-		const sentinelIndex = styled.indexOf(sentinel);
-		this.defaultStylePrefix = sentinelIndex >= 0 ? styled.slice(0, sentinelIndex) : "";
+		this.defaultStylePrefix = extractCombinedStylePrefix([
+			this.defaultTextStyle.color,
+			this.defaultTextStyle.bold ? this.theme.bold : undefined,
+			this.defaultTextStyle.italic ? this.theme.italic : undefined,
+			this.defaultTextStyle.strikethrough ? this.theme.strikethrough : undefined,
+			this.defaultTextStyle.underline ? this.theme.underline : undefined,
+		]);
 		return this.defaultStylePrefix;
 	}
 
 	private getStylePrefix(styleFn: (text: string) => string): string {
-		const sentinel = "\u0000";
-		const styled = styleFn(sentinel);
-		const sentinelIndex = styled.indexOf(sentinel);
-		return sentinelIndex >= 0 ? styled.slice(0, sentinelIndex) : "";
+		return extractStylePrefix(styleFn);
 	}
 
 	private getDefaultInlineStyleContext(): InlineStyleContext {
