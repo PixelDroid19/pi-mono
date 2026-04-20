@@ -27,10 +27,28 @@ export { type SettingItem, SettingsList, type SettingsListTheme } from "./compon
 export { Spacer } from "./components/spacer.js";
 export { Text } from "./components/text.js";
 export { TruncatedText } from "./components/truncated-text.js";
+export type {
+	OverlayAnchor,
+	OverlayHandle,
+	OverlayMargin,
+	OverlayOptions,
+	SizeValue,
+} from "./core/overlay.js";
+export { ProcessTerminal, type Terminal } from "./core/terminal.js";
+export { TUI } from "./core/tui.js";
+export {
+	type Component,
+	Container,
+	CURSOR_MARKER,
+	type Focusable,
+	isFocusable,
+} from "./core/types.js";
+
 // Editor component interface (for custom editors)
 export type { EditorComponent } from "./editor-component.js";
-// Fuzzy matching
-export { type FuzzyMatch, fuzzyFilter, fuzzyMatch } from "./fuzzy.js";
+// Keyboard input handling
+export { Key, type KeyId } from "./input/key-types.js";
+
 // Keybindings
 export {
 	getKeybindings,
@@ -43,24 +61,12 @@ export {
 	KeybindingsManager,
 	setKeybindings,
 	TUI_KEYBINDINGS,
-} from "./keybindings.js";
-// Keyboard input handling
-export {
-	decodeKittyPrintable,
-	isKeyRelease,
-	isKeyRepeat,
-	isKittyProtocolActive,
-	Key,
-	type KeyEventType,
-	type KeyId,
-	matchesKey,
-	parseKey,
-	setKittyProtocolActive,
-} from "./keys.js";
+} from "./input/keybindings.js";
+export { isKittyProtocolActive, matchesKey, parseKey, setKittyProtocolActive } from "./input/keys.js";
+export { decodeKittyPrintable } from "./input/kitty-printable.js";
+export { isKeyRelease, isKeyRepeat, type KeyEventType } from "./input/kitty-protocol.js";
 // Input buffering for batch splitting
-export { StdinBuffer, type StdinBufferEventMap, type StdinBufferOptions } from "./stdin-buffer.js";
-// Terminal interface and implementations
-export { ProcessTerminal, type Terminal } from "./terminal.js";
+export { StdinBuffer, type StdinBufferEventMap, type StdinBufferOptions } from "./input/stdin-buffer.js";
 // Terminal image support
 export {
 	allocateImageId,
@@ -88,19 +94,11 @@ export {
 	setCapabilities,
 	setCellDimensions,
 	type TerminalCapabilities,
-} from "./terminal-image.js";
-export {
-	type Component,
-	Container,
-	CURSOR_MARKER,
-	type Focusable,
-	isFocusable,
-	type OverlayAnchor,
-	type OverlayHandle,
-	type OverlayMargin,
-	type OverlayOptions,
-	type SizeValue,
-	TUI,
-} from "./tui.js";
-// Utilities
-export { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "./utils.js";
+} from "./media/terminal-image.js";
+// Fuzzy matching
+export { type FuzzyMatch, fuzzyFilter, fuzzyMatch } from "./text/fuzzy.js";
+
+// Text utilities
+export { truncateToWidth } from "./text/truncate.js";
+export { visibleWidth } from "./text/width.js";
+export { wrapTextWithAnsi } from "./text/wrap.js";

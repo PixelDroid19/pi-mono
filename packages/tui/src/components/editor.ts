@@ -4,185 +4,19 @@ import { decodeKittyPrintable, matchesKey } from "../keys.js";
 import { KillRing } from "../kill-ring.js";
 import { type Component, CURSOR_MARKER, type Focusable, type TUI } from "../tui.js";
 import { UndoStack } from "../undo-stack.js";
-import { getSegmenter, isPunctuationChar, isWhitespaceChar, truncateToWidth, visibleWidth } from "../utils.js";
+import { isPunctuationChar, isWhitespaceChar, truncateToWidth, visibleWidth } from "../utils.js";
+import {
+	buildVisualLineMap as buildVisualLineMapFn,
+	computeVerticalMoveColumn as computeVerticalMoveColumnFn,
+	findVisualLineAt as findVisualLineAtFn,
+	type VisualLine,
+} from "./editor-cursor-nav.js";
+import { isPasteMarker, segmentWithMarkers, wordWrapLine } from "./editor-word-wrap.js";
 import { SelectList, type SelectListLayoutOptions, type SelectListTheme } from "./select-list.js";
 
-const baseSegmenter = getSegmenter();
-
-/** Regex matching paste markers like `[paste #1 +123 lines]` or `[paste #2 1234 chars]`. */
-const PASTE_MARKER_REGEX = /\[paste #(\d+)( (\+\d+ lines|\d+ chars))?\]/g;
-
-/** Non-global version for single-segment testing. */
-const PASTE_MARKER_SINGLE = /^\[paste #(\d+)( (\+\d+ lines|\d+ chars))?\]$/;
-
-/** Check if a segment is a paste marker (i.e. was merged by segmentWithMarkers). */
-function isPasteMarker(segment: string): boolean {
-	return segment.length >= 10 && PASTE_MARKER_SINGLE.test(segment);
-}
-
-/**
- * A segmenter that wraps Intl.Segmenter and merges graphemes that fall
- * within paste markers into single atomic segments.  This makes cursor
- * movement, deletion, word-wrap, etc. treat paste markers as single units.
- *
- * Only markers whose numeric ID exists in `validIds` are merged.
- */
-function segmentWithMarkers(text: string, validIds: Set<number>): Iterable<Intl.SegmentData> {
-	// Fast path: no paste markers in the text or no valid IDs.
-	if (validIds.size === 0 || !text.includes("[paste #")) {
-		return baseSegmenter.segment(text);
-	}
-
-	// Find all marker spans with valid IDs.
-	const markers: Array<{ start: number; end: number }> = [];
-	for (const m of text.matchAll(PASTE_MARKER_REGEX)) {
-		const id = Number.parseInt(m[1]!, 10);
-		if (!validIds.has(id)) continue;
-		markers.push({ start: m.index, end: m.index + m[0].length });
-	}
-	if (markers.length === 0) {
-		return baseSegmenter.segment(text);
-	}
-
-	// Build merged segment list.
-	const baseSegments = baseSegmenter.segment(text);
-	const result: Intl.SegmentData[] = [];
-	let markerIdx = 0;
-
-	for (const seg of baseSegments) {
-		// Skip past markers that are entirely before this segment.
-		while (markerIdx < markers.length && markers[markerIdx]!.end <= seg.index) {
-			markerIdx++;
-		}
-
-		const marker = markerIdx < markers.length ? markers[markerIdx]! : null;
-
-		if (marker && seg.index >= marker.start && seg.index < marker.end) {
-			// This segment falls inside a marker.
-			// If this is the first segment of the marker, emit a merged segment.
-			if (seg.index === marker.start) {
-				const markerText = text.slice(marker.start, marker.end);
-				result.push({
-					segment: markerText,
-					index: marker.start,
-					input: text,
-				});
-			}
-			// Otherwise skip (already merged into the first segment).
-		} else {
-			result.push(seg);
-		}
-	}
-
-	return result;
-}
-
-/**
- * Represents a chunk of text for word-wrap layout.
- * Tracks both the text content and its position in the original line.
- */
-export interface TextChunk {
-	text: string;
-	startIndex: number;
-	endIndex: number;
-}
-
-/**
- * Split a line into word-wrapped chunks.
- * Wraps at word boundaries when possible, falling back to character-level
- * wrapping for words longer than the available width.
- *
- * @param line - The text line to wrap
- * @param maxWidth - Maximum visible width per chunk
- * @param preSegmented - Optional pre-segmented graphemes (e.g. with paste-marker awareness).
- *                       When omitted the default Intl.Segmenter is used.
- * @returns Array of chunks with text and position information
- */
-export function wordWrapLine(line: string, maxWidth: number, preSegmented?: Intl.SegmentData[]): TextChunk[] {
-	if (!line || maxWidth <= 0) {
-		return [{ text: "", startIndex: 0, endIndex: 0 }];
-	}
-
-	const lineWidth = visibleWidth(line);
-	if (lineWidth <= maxWidth) {
-		return [{ text: line, startIndex: 0, endIndex: line.length }];
-	}
-
-	const chunks: TextChunk[] = [];
-	const segments = preSegmented ?? [...baseSegmenter.segment(line)];
-
-	let currentWidth = 0;
-	let chunkStart = 0;
-
-	// Wrap opportunity: the position after the last whitespace before a non-whitespace
-	// grapheme, i.e. where a line break is allowed.
-	let wrapOppIndex = -1;
-	let wrapOppWidth = 0;
-
-	for (let i = 0; i < segments.length; i++) {
-		const seg = segments[i]!;
-		const grapheme = seg.segment;
-		const gWidth = visibleWidth(grapheme);
-		const charIndex = seg.index;
-		const isWs = !isPasteMarker(grapheme) && isWhitespaceChar(grapheme);
-
-		// Overflow check before advancing.
-		if (currentWidth + gWidth > maxWidth) {
-			if (wrapOppIndex >= 0 && currentWidth - wrapOppWidth + gWidth <= maxWidth) {
-				// Backtrack to last wrap opportunity (the remaining content
-				// plus the current grapheme still fits within maxWidth).
-				chunks.push({ text: line.slice(chunkStart, wrapOppIndex), startIndex: chunkStart, endIndex: wrapOppIndex });
-				chunkStart = wrapOppIndex;
-				currentWidth -= wrapOppWidth;
-			} else if (chunkStart < charIndex) {
-				// No viable wrap opportunity: force-break at current position.
-				// This also handles the case where backtracking to a word
-				// boundary wouldn't help because the remaining content plus
-				// the current grapheme (e.g. a wide character) still exceeds
-				// maxWidth.
-				chunks.push({ text: line.slice(chunkStart, charIndex), startIndex: chunkStart, endIndex: charIndex });
-				chunkStart = charIndex;
-				currentWidth = 0;
-			}
-			wrapOppIndex = -1;
-		}
-
-		if (gWidth > maxWidth) {
-			// Single atomic segment wider than maxWidth (e.g. paste marker
-			// in a narrow terminal). Re-wrap it at grapheme granularity.
-
-			// The segment remains logically atomic for cursor
-			// movement / editing — the split is purely visual for word-wrap layout.
-			const subChunks = wordWrapLine(grapheme, maxWidth);
-			for (let j = 0; j < subChunks.length - 1; j++) {
-				const sc = subChunks[j]!;
-				chunks.push({ text: sc.text, startIndex: charIndex + sc.startIndex, endIndex: charIndex + sc.endIndex });
-			}
-			const last = subChunks[subChunks.length - 1]!;
-			chunkStart = charIndex + last.startIndex;
-			currentWidth = visibleWidth(last.text);
-			wrapOppIndex = -1;
-			continue;
-		}
-
-		// Advance.
-		currentWidth += gWidth;
-
-		// Record wrap opportunity: whitespace followed by non-whitespace.
-		// Multiple spaces join (no break between them); the break point is
-		// after the last space before the next word.
-		const next = segments[i + 1];
-		if (isWs && next && (isPasteMarker(next.segment) || !isWhitespaceChar(next.segment))) {
-			wrapOppIndex = next.index;
-			wrapOppWidth = currentWidth;
-		}
-	}
-
-	// Push final chunk.
-	chunks.push({ text: line.slice(chunkStart), startIndex: chunkStart, endIndex: line.length });
-
-	return chunks;
-}
+// Re-export for backward compatibility (these were previously exported from this file)
+export type { TextChunk } from "./editor-word-wrap.js";
+export { wordWrapLine } from "./editor-word-wrap.js";
 
 // Kitty CSI-u sequences for printable keys, including optional shifted/base codepoints.
 interface EditorState {
@@ -1260,11 +1094,7 @@ export class Editor implements Component, Focusable {
 	 * Move cursor to a target visual line, applying sticky column logic.
 	 * Shared by moveCursor() and pageScroll().
 	 */
-	private moveToVisualLine(
-		visualLines: Array<{ logicalLine: number; startCol: number; length: number }>,
-		currentVisualLine: number,
-		targetVisualLine: number,
-	): void {
+	private moveToVisualLine(visualLines: VisualLine[], currentVisualLine: number, targetVisualLine: number): void {
 		const currentVL = visualLines[currentVisualLine];
 		const targetVL = visualLines[targetVisualLine];
 		if (!(currentVL && targetVL)) return;
@@ -1291,7 +1121,14 @@ export class Editor implements Component, Focusable {
 			visualLines[targetVisualLine + 1]?.logicalLine !== targetVL.logicalLine;
 		const targetMaxVisualCol = isLastTargetSegment ? targetVL.length : Math.max(0, targetVL.length - 1);
 
-		const moveToVisualCol = this.computeVerticalMoveColumn(currentVisualCol, sourceMaxVisualCol, targetMaxVisualCol);
+		const result = computeVerticalMoveColumnFn(
+			currentVisualCol,
+			sourceMaxVisualCol,
+			targetMaxVisualCol,
+			this.preferredVisualCol,
+		);
+		this.preferredVisualCol = result.preferredVisualCol;
+		const moveToVisualCol = result.col;
 
 		// Set cursor position
 		this.state.cursorLine = targetVL.logicalLine;
@@ -1340,59 +1177,6 @@ export class Editor implements Component, Focusable {
 
 		// No snap occurred – we moved out of the atomic segment.
 		this.snappedFromCursorCol = null;
-	}
-
-	/**
-	 * Compute the target visual column for vertical cursor movement.
-	 * Implements the sticky column decision table:
-	 *
-	 * | P | S | T | U | Scenario                                             | Set Preferred | Move To     |
-	 * |---|---|---|---| ---------------------------------------------------- |---------------|-------------|
-	 * | 0 | * | 0 | - | Start nav, target fits                               | null          | current     |
-	 * | 0 | * | 1 | - | Start nav, target shorter                            | current       | target end  |
-	 * | 1 | 0 | 0 | 0 | Clamped, target fits preferred                       | null          | preferred   |
-	 * | 1 | 0 | 0 | 1 | Clamped, target longer but still can't fit preferred | keep          | target end  |
-	 * | 1 | 0 | 1 | - | Clamped, target even shorter                         | keep          | target end  |
-	 * | 1 | 1 | 0 | - | Rewrapped, target fits current                       | null          | current     |
-	 * | 1 | 1 | 1 | - | Rewrapped, target shorter than current               | current       | target end  |
-	 *
-	 * Where:
-	 * - P = preferred col is set
-	 * - S = cursor in middle of source line (not clamped to end)
-	 * - T = target line shorter than current visual col
-	 * - U = target line shorter than preferred col
-	 */
-	private computeVerticalMoveColumn(
-		currentVisualCol: number,
-		sourceMaxVisualCol: number,
-		targetMaxVisualCol: number,
-	): number {
-		const hasPreferred = this.preferredVisualCol !== null; // P
-		const cursorInMiddle = currentVisualCol < sourceMaxVisualCol; // S
-		const targetTooShort = targetMaxVisualCol < currentVisualCol; // T
-
-		if (!hasPreferred || cursorInMiddle) {
-			if (targetTooShort) {
-				// Cases 2 and 7
-				this.preferredVisualCol = currentVisualCol;
-				return targetMaxVisualCol;
-			}
-
-			// Cases 1 and 6
-			this.preferredVisualCol = null;
-			return currentVisualCol;
-		}
-
-		const targetCantFitPreferred = targetMaxVisualCol < this.preferredVisualCol!; // U
-		if (targetTooShort || targetCantFitPreferred) {
-			// Cases 4 and 5
-			return targetMaxVisualCol;
-		}
-
-		// Case 3
-		const result = this.preferredVisualCol!;
-		this.preferredVisualCol = null;
-		return result;
 	}
 
 	private moveToLineStart(): void {
@@ -1610,69 +1394,19 @@ export class Editor implements Component, Focusable {
 		}
 	}
 
-	/**
-	 * Build a mapping from visual lines to logical positions.
-	 * Returns an array where each element represents a visual line with:
-	 * - logicalLine: index into this.state.lines
-	 * - startCol: starting column in the logical line
-	 * - length: length of this visual line segment
-	 */
-	private buildVisualLineMap(width: number): Array<{ logicalLine: number; startCol: number; length: number }> {
-		const visualLines: Array<{ logicalLine: number; startCol: number; length: number }> = [];
-
-		for (let i = 0; i < this.state.lines.length; i++) {
-			const line = this.state.lines[i] || "";
-			const lineVisWidth = visibleWidth(line);
-			if (line.length === 0) {
-				// Empty line still takes one visual line
-				visualLines.push({ logicalLine: i, startCol: 0, length: 0 });
-			} else if (lineVisWidth <= width) {
-				visualLines.push({ logicalLine: i, startCol: 0, length: line.length });
-			} else {
-				// Line needs wrapping - use word-aware wrapping
-				const chunks = wordWrapLine(line, width, [...this.segment(line)]);
-				for (const chunk of chunks) {
-					visualLines.push({
-						logicalLine: i,
-						startCol: chunk.startIndex,
-						length: chunk.endIndex - chunk.startIndex,
-					});
-				}
-			}
-		}
-
-		return visualLines;
+	/** Build visual line map delegating to the extracted pure function. */
+	private buildVisualLineMap(width: number): VisualLine[] {
+		return buildVisualLineMapFn(this.state.lines, width, (text) => this.segment(text));
 	}
 
-	/**
-	 * Find the visual line index that contains the given logical position.
-	 */
-	private findVisualLineAt(
-		visualLines: Array<{ logicalLine: number; startCol: number; length: number }>,
-		line: number,
-		col: number,
-	): number {
-		for (let i = 0; i < visualLines.length; i++) {
-			const vl = visualLines[i];
-			if (!vl || vl.logicalLine !== line) continue;
-			const offset = col - vl.startCol;
-			// Cursor is in this segment if it's within range. For the last
-			// segment of a logical line, cursor can be at length (end position)
-			const isLastSegmentOfLine = i === visualLines.length - 1 || visualLines[i + 1]?.logicalLine !== vl.logicalLine;
-			if (offset >= 0 && (offset < vl.length || (isLastSegmentOfLine && offset === vl.length))) {
-				return i;
-			}
-		}
-		return visualLines.length - 1;
+	/** Find the visual line index that contains the given logical position. */
+	private findVisualLineAt(visualLines: VisualLine[], line: number, col: number): number {
+		return findVisualLineAtFn(visualLines, line, col);
 	}
 
-	/**
-	 * Find the visual line index for the current cursor position.
-	 */
-	private findCurrentVisualLine(
-		visualLines: Array<{ logicalLine: number; startCol: number; length: number }>,
-	): number {
-		return this.findVisualLineAt(visualLines, this.state.cursorLine, this.state.cursorCol);
+	/** Find the visual line index for the current cursor position. */
+	private findCurrentVisualLine(visualLines: VisualLine[]): number {
+		return findVisualLineAtFn(visualLines, this.state.cursorLine, this.state.cursorCol);
 	}
 
 	private moveCursor(deltaLine: number, deltaCol: number): void {
