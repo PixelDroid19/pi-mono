@@ -1,243 +1,73 @@
-# Development Rules
+# Repo Notes
 
-## Conversational Style
+## Structure
 
-- Keep answers short and concise
-- No emojis in commits, issues, PR comments, or code
-- No fluff or cheerful filler text
-- Technical prose only, be kind but direct (e.g., "Thanks @user" not "Thanks so much @user!")
+- npm workspaces monorepo. The main app is `packages/coding-agent` (`pi` CLI/TUI, entry `src/cli.ts`).
+- Supporting packages: `packages/ai` (provider/model layer), `packages/agent` (agent runtime), `packages/tui` (terminal UI), `packages/web-ui` (component library; runnable app is `packages/web-ui/example`), `packages/mom` (Slack bot), `packages/pods` (GPU pod CLI).
 
-## Code Quality
+## Read First
 
-- No `any` types unless absolutely necessary
-- Check node_modules for external API type definitions instead of guessing
-- **NEVER use inline imports** - no `await import("./foo.js")`, no `import("pkg").Type` in type positions, no dynamic imports for types. Always use standard top-level imports.
-- NEVER remove or downgrade code to fix type errors from outdated dependencies; upgrade the dependency instead
-- Always ask before removing functionality or code that appears to be intentional
-- Do not preserve backward compatibility unless the user explicitly asks for it
-- Never hardcode key checks with, eg. `matchesKey(keyData, "ctrl+x")`. All keybindings must be configurable. Add default to matching object (`DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS`)
+- Start with [README.md](README.md) and [CONTRIBUTING.md](CONTRIBUTING.md), then read the README for the package you are changing.
+- Core package references: [packages/ai/README.md](packages/ai/README.md), [packages/agent/README.md](packages/agent/README.md), [packages/coding-agent/README.md](packages/coding-agent/README.md).
+- For `packages/coding-agent`, prefer focused docs over rediscovering behavior: [packages/coding-agent/docs/development.md](packages/coding-agent/docs/development.md), [packages/coding-agent/docs/extensions.md](packages/coding-agent/docs/extensions.md), [packages/coding-agent/docs/session.md](packages/coding-agent/docs/session.md), [packages/coding-agent/docs/compaction.md](packages/coding-agent/docs/compaction.md), [packages/coding-agent/docs/rpc.md](packages/coding-agent/docs/rpc.md), [packages/coding-agent/docs/skills.md](packages/coding-agent/docs/skills.md), and [packages/coding-agent/docs/packages.md](packages/coding-agent/docs/packages.md).
+- Use examples instead of inventing patterns: [packages/coding-agent/examples/README.md](packages/coding-agent/examples/README.md), [packages/coding-agent/examples/extensions/README.md](packages/coding-agent/examples/extensions/README.md), and [packages/coding-agent/examples/sdk/README.md](packages/coding-agent/examples/sdk/README.md).
+
+## Change Routing
+
+- Provider, model, OAuth, API-registry, and model-generation work belongs in `packages/ai`.
+- Agent loop, message conversion, tool execution, and steering/follow-up behavior belong in `packages/agent`.
+- CLI startup, sessions, compaction, extensions, prompt templates, keybindings, and RPC belong in `packages/coding-agent`.
+- Terminal rendering belongs in `packages/tui`.
+- Browser UI belongs in `packages/web-ui`; the runnable app is `packages/web-ui/example`.
+
+## Communication
+
+- Keep prose short and technical. No emojis in code, commits, issues, or PR comments.
 
 ## Commands
 
-- After code changes (not documentation changes): `npm run check` (get full output, no tail). Fix all errors, warnings, and infos before committing.
-- Note: `npm run check` does not run tests.
-- NEVER run: `npm run dev`, `npm run build`, `npm test`
-- Only run specific tests if user instructs: `npx tsx ../../node_modules/vitest/dist/cli.js --run test/specific.test.ts`
-- Run tests from the package root, not the repo root.
-- If you create or modify a test file, you MUST run that test file and iterate until it passes.
-- When writing tests, run them, identify issues in either the test or implementation, and iterate until fixed.
-- For `packages/coding-agent/test/suite/`, use `test/suite/harness.ts` plus the faux provider. Do not use real provider APIs, real API keys, or paid tokens.
-- Put issue-specific regressions under `packages/coding-agent/test/suite/regressions/` and name them `<issue-number>-<short-slug>.test.ts`.
-- NEVER commit unless user asks
+- Use Node 22 to match CI. Package engines allow `>=20`.
+- Install with `npm install`.
+- Build before checks: `npm run build` then `npm run check`.
+- `npm run check` mutates files. It runs `biome check --write`, `tsgo --noEmit`, `npm run check:browser-smoke`, then `packages/web-ui`'s own check.
+- Pre-commit runs `npm run check` and restages previously staged files if formatting changed.
+- Safe full local test: `./test.sh`. It temporarily moves `~/.pi/agent/auth.json`, unsets provider credentials, sets `PI_NO_LOCAL_LLM=1`, then runs `npm test`.
+- CI order is `npm ci && npm run build && npm run check && npm test`.
+- Root `npm run dev` starts watchers for `ai`, `agent`, `coding-agent`, `mom`, `web-ui`, and `tui`; prefer package-specific commands unless you need the whole workspace.
 
-## Contribution Gate
+## Focused Verification
 
-- New issues from new contributors are auto-closed by `.github/workflows/issue-gate.yml`
-- New PRs from new contributors without PR rights are auto-closed by `.github/workflows/pr-gate.yml`
-- Maintainer approval comments are handled by `.github/workflows/approve-contributor.yml`
-- Maintainers review auto-closed issues daily
-- Issues that do not meet the quality bar in `CONTRIBUTING.md` are not reopened and do not receive a reply
-- `lgtmi` approves future issues
-- `lgtm` approves future issues and rights to submit PRs
+- Run focused tests from the package root using that package's `npm test` script.
+- For `packages/coding-agent/test/suite`, use `test/suite/harness.ts` plus the faux provider from `packages/ai/src/providers/faux.ts`. Keep these tests offline and deterministic.
+- Put issue-specific regressions in `packages/coding-agent/test/suite/regressions/<issue>-<slug>.test.ts`.
 
-When creating issues:
+## Local Run
 
-- Add `pkg:*` labels to indicate which package(s) the issue affects
-  - Available labels: `pkg:agent`, `pkg:ai`, `pkg:coding-agent`, `pkg:mom`, `pkg:pods`, `pkg:tui`, `pkg:web-ui`
-- If an issue spans multiple packages, add all relevant labels
+- `./pi-test.sh` runs `packages/coding-agent/src/cli.ts` via `tsx` from source and preserves the caller's current working directory.
+- Default coding-agent state lives under `~/.pi/agent` (`auth.json`, sessions, keybindings). Override with `PI_CODING_AGENT_DIR`.
+- `packages/web-ui` is a library. The browser app is the Vite example in `packages/web-ui/example`.
 
-When posting issue/PR comments:
+## Gotchas
 
-- Write the full comment to a temp file and use `gh issue comment --body-file` or `gh pr comment --body-file`
-- Never pass multi-line markdown directly via `--body` in shell commands
-- Preview the exact comment text before posting
-- Post exactly one final comment unless the user explicitly asks for multiple comments
-- If a comment is malformed, delete it immediately, then post one corrected comment
-- Keep comments concise, technical, and in the user's tone
+- Do not hand-edit `packages/ai/src/models.generated.ts`; `packages/ai/scripts/generate-models.ts` regenerates it during `npm run build`.
+- Do not rewrite `packages/ai/src/env-api-keys.ts` to top-level `node:*` imports. Its Node-only dynamic imports are required for browser/Vite safety, and `npm run check:browser-smoke` exists to catch regressions.
+- In `packages/coding-agent`, resolve package assets through `src/config.ts` helpers, not `__dirname`; the CLI runs from npm, standalone binary, and `tsx` from source.
+- In `packages/coding-agent`, new shortcuts should use namespaced keybinding ids and the keybindings system, not hard-coded `matchesKey(..., "ctrl+x")` checks. User overrides live in `~/.pi/agent/keybindings.json`.
+- Unless the task is explicit maintainer or release work, do not edit `packages/*/CHANGELOG.md`; `CONTRIBUTING.md` says maintainers add changelog entries.
 
-When closing issues via commit:
+## Git And GitHub
 
-- Include `fixes #<number>` or `closes #<number>` in the commit message
-- This automatically closes the issue when the commit is merged
+- This repo may be edited by multiple agents at once. Never use `git add .`, `git add -A`, `git stash`, `git reset --hard`, `git checkout .`, or `git clean -fd`.
+- Stage and commit only the paths you changed. Run `git status` first.
+- New contributor issues and PRs are auto-closed by `.github/workflows/issue-gate.yml` and `.github/workflows/pr-gate.yml`. `lgtmi` approves future issues; `lgtm` approves future issues and PRs.
+- When filing issues, use the GitHub templates and add `pkg:*` labels for affected packages.
+- When posting multi-line issue or PR comments with `gh`, write the body to a temp file and use `--body-file`.
 
-## PR Workflow
+## Adding Providers
 
-- Analyze PRs without pulling locally first
-- If the user approves: create a feature branch, pull PR, rebase on main, apply adjustments, commit, merge into main, push, close PR, and leave a comment in the user's tone
-- You never open PRs yourself. We work in feature branches until everything is according to the user's requirements, then merge into main, and push.
+- Adding a provider in `packages/ai` is cross-cutting. Update `packages/ai/src/types.ts`, the provider module, `packages/ai/package.json` exports, `packages/ai/src/index.ts`, lazy registration in `packages/ai/src/providers/register-builtins.ts`, env detection in `packages/ai/src/env-api-keys.ts`, and model generation in `packages/ai/scripts/generate-models.ts`.
+- Also update coding-agent defaults and docs in `packages/coding-agent/src/core/model-resolver.ts`, `packages/coding-agent/src/cli/args.ts`, and `packages/coding-agent/README.md`, plus the shared provider test matrix under `packages/ai/test/`.
 
-## Testing pi Interactive Mode with tmux
+## Release
 
-To test pi's TUI in a controlled terminal environment:
-
-```bash
-# Create tmux session with specific dimensions
-tmux new-session -d -s pi-test -x 80 -y 24
-
-# Start pi from source
-tmux send-keys -t pi-test "cd /Users/badlogic/workspaces/pi-mono && ./pi-test.sh" Enter
-
-# Wait for startup, then capture output
-sleep 3 && tmux capture-pane -t pi-test -p
-
-# Send input
-tmux send-keys -t pi-test "your prompt here" Enter
-
-# Send special keys
-tmux send-keys -t pi-test Escape
-tmux send-keys -t pi-test C-o  # ctrl+o
-
-# Cleanup
-tmux kill-session -t pi-test
-```
-
-## Changelog
-
-Location: `packages/*/CHANGELOG.md` (each package has its own)
-
-### Format
-
-Use these sections under `## [Unreleased]`:
-
-- `### Breaking Changes` - API changes requiring migration
-- `### Added` - New features
-- `### Changed` - Changes to existing functionality
-- `### Fixed` - Bug fixes
-- `### Removed` - Removed features
-
-### Rules
-
-- Before adding entries, read the full `[Unreleased]` section to see which subsections already exist
-- New entries ALWAYS go under `## [Unreleased]` section
-- Append to existing subsections (e.g., `### Fixed`), do not create duplicates
-- NEVER modify already-released version sections (e.g., `## [0.12.2]`)
-- Each version section is immutable once released
-
-### Attribution
-
-- **Internal changes (from issues)**: `Fixed foo bar ([#123](https://github.com/badlogic/pi-mono/issues/123))`
-- **External contributions**: `Added feature X ([#456](https://github.com/badlogic/pi-mono/pull/456) by [@username](https://github.com/username))`
-
-## Adding a New LLM Provider (packages/ai)
-
-Adding a new provider requires changes across multiple files:
-
-### 1. Core Types (`packages/ai/src/types.ts`)
-
-- Add API identifier to `Api` type union (e.g., `"bedrock-converse-stream"`)
-- Create options interface extending `StreamOptions`
-- Add mapping to `ApiOptionsMap`
-- Add provider name to `KnownProvider` type union
-
-### 2. Provider Implementation (`packages/ai/src/providers/`)
-
-Create provider file exporting:
-
-- `stream<Provider>()` function returning `AssistantMessageEventStream`
-- `streamSimple<Provider>()` for `SimpleStreamOptions` mapping
-- Provider-specific options interface
-- Message/tool conversion functions
-- Response parsing emitting standardized events (`text`, `tool_call`, `thinking`, `usage`, `stop`)
-
-### 3. Provider Exports and Lazy Registration
-
-- Add a package subpath export in `packages/ai/package.json` pointing at `./dist/providers/<provider>.js`
-- Add `export type` re-exports in `packages/ai/src/index.ts` for provider option types that should remain available from the root entry
-- Register the provider in `packages/ai/src/providers/register-builtins.ts` via lazy loader wrappers, do not statically import provider implementation modules there
-- Add credential detection in `packages/ai/src/env-api-keys.ts`
-
-### 4. Model Generation (`packages/ai/scripts/generate-models.ts`)
-
-- Add logic to fetch/parse models from provider source
-- Map to standardized `Model` interface
-
-### 5. Tests (`packages/ai/test/`)
-
-Add provider to: `stream.test.ts`, `tokens.test.ts`, `abort.test.ts`, `empty.test.ts`, `context-overflow.test.ts`, `image-limits.test.ts`, `unicode-surrogate.test.ts`, `tool-call-without-result.test.ts`, `image-tool-result.test.ts`, `total-tokens.test.ts`, `cross-provider-handoff.test.ts`.
-
-For `cross-provider-handoff.test.ts`, add at least one provider/model pair. If the provider exposes multiple model families (for example GPT and Claude), add at least one pair per family.
-
-For non-standard auth, create utility (e.g., `bedrock-utils.ts`) with credential detection.
-
-### 6. Coding Agent (`packages/coding-agent/`)
-
-- `src/core/model-resolver.ts`: Add default model ID to `DEFAULT_MODELS`
-- `src/cli/args.ts`: Add env var documentation
-- `README.md`: Add provider setup instructions
-
-### 7. Documentation
-
-- `packages/ai/README.md`: Add to providers table, document options/auth, add env vars
-- `packages/ai/CHANGELOG.md`: Add entry under `## [Unreleased]`
-
-## Releasing
-
-**Lockstep versioning**: All packages always share the same version number. Every release updates all packages together.
-
-**Version semantics** (no major releases):
-
-- `patch`: Bug fixes and new features
-- `minor`: API breaking changes
-
-### Steps
-
-1. **Update CHANGELOGs**: Ensure all changes since last release are documented in the `[Unreleased]` section of each affected package's CHANGELOG.md
-
-2. **Run release script**:
-   ```bash
-   npm run release:patch    # Fixes and additions
-   npm run release:minor    # API breaking changes
-   ```
-
-The script handles: version bump, CHANGELOG finalization, commit, tag, publish, and adding new `[Unreleased]` sections.
-
-## **CRITICAL** Git Rules for Parallel Agents **CRITICAL**
-
-Multiple agents may work on different files in the same worktree simultaneously. You MUST follow these rules:
-
-### Committing
-
-- **ONLY commit files YOU changed in THIS session**
-- ALWAYS include `fixes #<number>` or `closes #<number>` in the commit message when there is a related issue or PR
-- NEVER use `git add -A` or `git add .` - these sweep up changes from other agents
-- ALWAYS use `git add <specific-file-paths>` listing only files you modified
-- Before committing, run `git status` and verify you are only staging YOUR files
-- Track which files you created/modified/deleted during the session
-
-### Forbidden Git Operations
-
-These commands can destroy other agents' work:
-
-- `git reset --hard` - destroys uncommitted changes
-- `git checkout .` - destroys uncommitted changes
-- `git clean -fd` - deletes untracked files
-- `git stash` - stashes ALL changes including other agents' work
-- `git add -A` / `git add .` - stages other agents' uncommitted work
-- `git commit --no-verify` - bypasses required checks and is never allowed
-
-### Safe Workflow
-
-```bash
-# 1. Check status first
-git status
-
-# 2. Add ONLY your specific files
-git add packages/ai/src/providers/transform-messages.ts
-git add packages/ai/CHANGELOG.md
-
-# 3. Commit
-git commit -m "fix(ai): description"
-
-# 4. Push (pull --rebase if needed, but NEVER reset/checkout)
-git pull --rebase && git push
-```
-
-### If Rebase Conflicts Occur
-
-- Resolve conflicts in YOUR files only
-- If conflict is in a file you didn't modify, abort and ask the user
-- NEVER force push
-
-### User override
-
-If the user instructions conflict with rules set out here, ask for confirmation that they want to override the rules. Only then execute their instructions.
+- Releases are lockstep across packages. `npm run release:patch` and `npm run release:minor` expect a clean worktree and handle version bumping, changelog roll-forward, publish, tags, and push.
