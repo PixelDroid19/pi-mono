@@ -562,17 +562,21 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
  */
 function formatParsedKey(codepoint: number, modifier: number, baseLayoutKey?: number): string | undefined {
 	const normalizedCodepoint = normalizeKittyFunctionalCodepoint(codepoint);
+	const foldedCodepoint =
+		modifier & MODIFIERS.shift && normalizedCodepoint >= 65 && normalizedCodepoint <= 90
+			? normalizedCodepoint + 32
+			: normalizedCodepoint;
 
 	// Use base layout key only when codepoint is not a recognized Latin
 	// letter (a-z), digit (0-9), or symbol (/, -, [, ;, etc.). For those,
 	// the codepoint is authoritative regardless of physical key position.
 	// This prevents remapped layouts (Dvorak, Colemak, xremap, etc.) from
 	// reporting the wrong key name based on the QWERTY physical position.
-	const isLatinLetter = normalizedCodepoint >= 97 && normalizedCodepoint <= 122; // a-z
-	const isDigit = normalizedCodepoint >= 48 && normalizedCodepoint <= 57; // 0-9
-	const isKnownSymbol = SYMBOL_KEYS.has(String.fromCharCode(normalizedCodepoint));
+	const isLatinLetter = foldedCodepoint >= 97 && foldedCodepoint <= 122; // a-z
+	const isDigit = foldedCodepoint >= 48 && foldedCodepoint <= 57; // 0-9
+	const isKnownSymbol = SYMBOL_KEYS.has(String.fromCharCode(foldedCodepoint));
 	const effectiveCodepoint =
-		isLatinLetter || isDigit || isKnownSymbol ? normalizedCodepoint : (baseLayoutKey ?? normalizedCodepoint);
+		isLatinLetter || isDigit || isKnownSymbol ? foldedCodepoint : (baseLayoutKey ?? foldedCodepoint);
 
 	let keyName: string | undefined;
 	if (effectiveCodepoint === CODEPOINTS.escape) keyName = "escape";

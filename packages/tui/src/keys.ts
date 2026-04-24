@@ -7,5 +7,5 @@
  */
 export { Key, type KeyId } from "./input/key-types.js";
 export { isKittyProtocolActive, matchesKey, parseKey, setKittyProtocolActive } from "./input/keys.js";
-export { decodeKittyPrintable } from "./input/kitty-printable.js";
+export { decodeKittyPrintable, decodePrintableKey } from "./input/kitty-printable.js";
 export { isKeyRelease, isKeyRepeat, type KeyEventType } from "./input/kitty-protocol.js";

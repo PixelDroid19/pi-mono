@@ -7,7 +7,13 @@
  * See: https://sw.kovidgoyal.net/kitty/keyboard-protocol/
  */
 
-import { FUNCTIONAL_CODEPOINTS, LOCK_MASK, normalizeKittyFunctionalCodepoint, SYMBOL_KEYS } from "./key-constants.js";
+import {
+	FUNCTIONAL_CODEPOINTS,
+	LOCK_MASK,
+	MODIFIERS,
+	normalizeKittyFunctionalCodepoint,
+	SYMBOL_KEYS,
+} from "./key-constants.js";
 
 // =============================================================================
 // Kitty Protocol Parsing
@@ -179,6 +185,14 @@ export function matchesKittySequence(data: string, expectedCodepoint: number, ex
 
 	// Primary match: codepoint matches directly after normalizing functional keys
 	if (normalizedCodepoint === normalizedExpectedCodepoint) return true;
+	if (
+		actualMod & MODIFIERS.shift &&
+		normalizedExpectedCodepoint >= 97 &&
+		normalizedExpectedCodepoint <= 122 &&
+		normalizedCodepoint === normalizedExpectedCodepoint - 32
+	) {
+		return true;
+	}
 
 	// Alternate match: use base layout key for non-Latin keyboard layouts.
 	// This allows Ctrl+С (Cyrillic) to match Ctrl+c (Latin) when terminal reports
@@ -218,5 +232,12 @@ export function parseModifyOtherKeysSequence(data: string): ParsedModifyOtherKey
 export function matchesModifyOtherKeys(data: string, expectedKeycode: number, expectedModifier: number): boolean {
 	const parsed = parseModifyOtherKeysSequence(data);
 	if (!parsed) return false;
-	return parsed.codepoint === expectedKeycode && parsed.modifier === expectedModifier;
+	if (parsed.modifier !== expectedModifier) return false;
+	if (parsed.codepoint === expectedKeycode) return true;
+	return (
+		(parsed.modifier & MODIFIERS.shift) !== 0 &&
+		expectedKeycode >= 97 &&
+		expectedKeycode <= 122 &&
+		parsed.codepoint === expectedKeycode - 32
+	);
 }

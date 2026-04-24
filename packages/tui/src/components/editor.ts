@@ -1,6 +1,6 @@
-import type { AutocompleteProvider, AutocompleteSuggestions, CombinedAutocompleteProvider } from "../autocomplete.js";
+import type { AutocompleteProvider, AutocompleteSuggestions } from "../autocomplete.js";
 import { getKeybindings } from "../keybindings.js";
-import { decodeKittyPrintable, matchesKey } from "../keys.js";
+import { decodePrintableKey, matchesKey } from "../keys.js";
 import { KillRing } from "../kill-ring.js";
 import { type Component, CURSOR_MARKER, type Focusable, type TUI } from "../tui.js";
 import { UndoStack } from "../undo-stack.js";
@@ -394,11 +394,12 @@ export class Editor implements Component, Focusable {
 				return;
 			}
 
-			if (data.charCodeAt(0) >= 32) {
+			const printable = decodePrintableKey(data) ?? (data.charCodeAt(0) >= 32 ? data : undefined);
+			if (printable !== undefined) {
 				// Printable character - perform the jump
 				const direction = this.jumpMode;
 				this.jumpMode = null;
-				this.jumpToChar(data, direction);
+				this.jumpToChar(printable, direction);
 				return;
 			}
 
@@ -659,9 +660,9 @@ export class Editor implements Component, Focusable {
 			return;
 		}
 
-		const kittyPrintable = decodeKittyPrintable(data);
-		if (kittyPrintable !== undefined) {
-			this.insertCharacter(kittyPrintable);
+		const printable = decodePrintableKey(data);
+		if (printable !== undefined) {
+			this.insertCharacter(printable);
 			return;
 		}
 
@@ -823,17 +824,16 @@ export class Editor implements Component, Focusable {
 			if (char === "/" && this.isAtStartOfMessage()) {
 				this.tryTriggerAutocomplete();
 			}
-			// Auto-trigger for "@" file reference (fuzzy search)
-			else if (char === "@") {
+			// Auto-trigger for symbol-based completion like @ or # at token boundaries
+			else if (char === "@" || char === "#") {
 				const currentLine = this.state.lines[this.state.cursorLine] || "";
 				const textBeforeCursor = currentLine.slice(0, this.state.cursorCol);
-				// Only trigger if @ is after whitespace or at start of line
-				const charBeforeAt = textBeforeCursor[textBeforeCursor.length - 2];
-				if (textBeforeCursor.length === 1 || charBeforeAt === " " || charBeforeAt === "\t") {
+				const charBeforeSymbol = textBeforeCursor[textBeforeCursor.length - 2];
+				if (textBeforeCursor.length === 1 || charBeforeSymbol === " " || charBeforeSymbol === "\t") {
 					this.tryTriggerAutocomplete();
 				}
 			}
-			// Also auto-trigger when typing letters in a slash command context
+			// Also auto-trigger when typing letters in a slash command or symbol completion context
 			else if (/[a-zA-Z0-9.\-_]/.test(char)) {
 				const currentLine = this.state.lines[this.state.cursorLine] || "";
 				const textBeforeCursor = currentLine.slice(0, this.state.cursorCol);
@@ -841,8 +841,8 @@ export class Editor implements Component, Focusable {
 				if (this.isInSlashCommandContext(textBeforeCursor)) {
 					this.tryTriggerAutocomplete();
 				}
-				// Check if we're in an @ file reference context
-				else if (textBeforeCursor.match(/(?:^|[\s])@[^\s]*$/)) {
+				// Check if we're in a symbol-based completion context like @ or #
+				else if (textBeforeCursor.match(/(?:^|[\s])[@#][^\s]*$/)) {
 					this.tryTriggerAutocomplete();
 				}
 			}
@@ -1009,8 +1009,8 @@ export class Editor implements Component, Focusable {
 			if (this.isInSlashCommandContext(textBeforeCursor)) {
 				this.tryTriggerAutocomplete();
 			}
-			// @ file reference context
-			else if (textBeforeCursor.match(/(?:^|[\s])@[^\s]*$/)) {
+			// Symbol-based completion context like @ or #
+			else if (textBeforeCursor.match(/(?:^|[\s])[@#][^\s]*$/)) {
 				this.tryTriggerAutocomplete();
 			}
 		}
@@ -1323,8 +1323,8 @@ export class Editor implements Component, Focusable {
 			if (this.isInSlashCommandContext(textBeforeCursor)) {
 				this.tryTriggerAutocomplete();
 			}
-			// @ file reference context
-			else if (textBeforeCursor.match(/(?:^|[\s])@[^\s]*$/)) {
+			// Symbol-based completion context like @ or #
+			else if (textBeforeCursor.match(/(?:^|[\s])[@#][^\s]*$/)) {
 				this.tryTriggerAutocomplete();
 			}
 		}
@@ -1703,10 +1703,13 @@ export class Editor implements Component, Focusable {
 		if (!this.autocompleteProvider) return;
 
 		if (options.force) {
-			const provider = this.autocompleteProvider as CombinedAutocompleteProvider;
 			const shouldTrigger =
-				!provider.shouldTriggerFileCompletion ||
-				provider.shouldTriggerFileCompletion(this.state.lines, this.state.cursorLine, this.state.cursorCol);
+				!this.autocompleteProvider.shouldTriggerFileCompletion ||
+				this.autocompleteProvider.shouldTriggerFileCompletion(
+					this.state.lines,
+					this.state.cursorLine,
+					this.state.cursorCol,
+				);
 			if (!shouldTrigger) {
 				return;
 			}
@@ -1757,8 +1760,8 @@ export class Editor implements Component, Focusable {
 
 		const currentLine = this.state.lines[this.state.cursorLine] || "";
 		const textBeforeCursor = currentLine.slice(0, this.state.cursorCol);
-		const isAttachmentContext = /(?:^|[ \t])@(?:"[^"]*|[^\s]*)$/.test(textBeforeCursor);
-		return isAttachmentContext ? ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS : 0;
+		const isSymbolAutocompleteContext = /(?:^|[ \t])(?:@(?:"[^"]*|[^\s]*)|#[^\s]*)$/.test(textBeforeCursor);
+		return isSymbolAutocompleteContext ? ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS : 0;
 	}
 
 	private async runAutocompleteRequest(

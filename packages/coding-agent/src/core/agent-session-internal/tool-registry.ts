@@ -10,7 +10,7 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ToolDefinition } from "../extensions/index.js";
 import type { ResourceLoader } from "../resource-loader.js";
 import type { SourceInfo } from "../source-info.js";
-import { buildSystemPrompt } from "../system-prompt.js";
+import { type BuildSystemPromptOptions, buildSystemPrompt } from "../system-prompt.js";
 
 export interface ToolDefinitionEntry {
 	definition: ToolDefinition;
@@ -72,7 +72,7 @@ export function buildSystemPromptFromTools(
 	toolPromptSnippets: Map<string, string>,
 	toolPromptGuidelines: Map<string, string[]>,
 	resourceLoader: ResourceLoader,
-): string {
+): { options: BuildSystemPromptOptions; prompt: string } {
 	const validToolNames = toolNames.filter((name) => toolRegistry.has(name));
 	const toolSnippets: Record<string, string> = {};
 	const promptGuidelines: string[] = [];
@@ -95,7 +95,7 @@ export function buildSystemPromptFromTools(
 	const loadedSkills = resourceLoader.getSkills().skills;
 	const loadedContextFiles = resourceLoader.getAgentsFiles().agentsFiles;
 
-	return buildSystemPrompt({
+	const options: BuildSystemPromptOptions = {
 		cwd,
 		skills: loadedSkills,
 		contextFiles: loadedContextFiles,
@@ -104,5 +104,7 @@ export function buildSystemPromptFromTools(
 		selectedTools: validToolNames,
 		toolSnippets,
 		promptGuidelines,
-	});
+	};
+
+	return { options, prompt: buildSystemPrompt(options) };
 }

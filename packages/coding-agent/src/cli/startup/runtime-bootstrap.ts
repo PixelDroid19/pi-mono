@@ -12,7 +12,6 @@ import type { ModelRegistry } from "../../core/model-registry.js";
 import { resolveCliModel, type ScopedModel } from "../../core/model-resolver.js";
 import type { CreateAgentSessionOptions } from "../../core/sdk.js";
 import type { SettingsManager } from "../../core/settings-manager.js";
-import { allTools } from "../../core/tools/index.js";
 import type { Args } from "../args.js";
 
 export function collectSettingsDiagnostics(
@@ -100,13 +99,12 @@ export function buildSessionOptions(
 	}
 
 	if (parsed.noTools) {
-		if (parsed.tools && parsed.tools.length > 0) {
-			options.tools = parsed.tools.map((name) => allTools[name]);
-		} else {
-			options.tools = [];
-		}
-	} else if (parsed.tools) {
-		options.tools = parsed.tools.map((name) => allTools[name]);
+		options.noTools = "all";
+	} else if (parsed.noBuiltinTools) {
+		options.noTools = "builtin";
+	}
+	if (parsed.tools) {
+		options.tools = [...parsed.tools];
 	}
 
 	return { options, cliThinkingFromModel, diagnostics };

@@ -1,8 +1,9 @@
 import { join } from "node:path";
 import { Agent, type AgentMessage, type ThinkingLevel } from "@mariozechner/pi-agent-core";
 import { type Message, type Model, streamSimple } from "@mariozechner/pi-ai";
-import { getAgentDir, getDocsPath } from "../config.js";
+import { getAgentDir } from "../config.js";
 import { AgentSession } from "./agent-session.js";
+import { formatNoModelsAvailableMessage } from "./auth-guidance.js";
 import { AuthStorage } from "./auth-storage.js";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.js";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.js";
@@ -13,11 +14,10 @@ import type { ResourceLoader } from "./resource-loader.js";
 import { DefaultResourceLoader } from "./resource-loader.js";
 import { getDefaultSessionDir, SessionManager } from "./session-manager.js";
 import { SettingsManager } from "./settings-manager.js";
+import { isInstallTelemetryEnabled } from "./telemetry.js";
 import { time } from "./timings.js";
 import {
-	allTools,
-	bashTool,
-	codingTools,
+	createAllTools,
 	createBashTool,
 	createCodingTools,
 	createEditTool,
@@ -27,17 +27,20 @@ import {
 	createReadOnlyTools,
 	createReadTool,
 	createWriteTool,
-	editTool,
-	findTool,
-	grepTool,
-	lsTool,
-	readOnlyTools,
-	readTool,
-	type Tool,
 	type ToolName,
 	withFileMutationQueue,
-	writeTool,
 } from "./tools/index.js";
+
+const allTools = createAllTools(process.cwd());
+const readTool = allTools.read;
+const bashTool = allTools.bash;
+const editTool = allTools.edit;
+const writeTool = allTools.write;
+const grepTool = allTools.grep;
+const findTool = allTools.find;
+const lsTool = allTools.ls;
+const codingTools = [readTool, bashTool, editTool, writeTool];
+const readOnlyTools = [readTool, grepTool, findTool, lsTool];
 
 export interface CreateAgentSessionOptions {
 	/** Working directory for project-local discovery. Default: process.cwd() */
@@ -57,8 +60,22 @@ export interface CreateAgentSessionOptions {
 	/** Models available for cycling (Ctrl+P in interactive mode) */
 	scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 
-	/** Built-in tools to use. Default: codingTools [read, bash, edit, write] */
-	tools?: Tool[];
+	/**
+	 * Optional default tool suppression mode when no explicit allowlist is provided.
+	 *
+	 * - "all": start with no tools enabled
+	 * - "builtin": disable the default built-in tools (read, bash, edit, write)
+	 *   but keep extension/custom tools enabled
+	 */
+	noTools?: "all" | "builtin";
+	/**
+	 * Optional allowlist of tool names.
+	 *
+	 * When omitted, pi enables the default built-in tools (read, bash, edit, write)
+	 * and leaves extension/custom tools enabled unless `noTools` changes that default.
+	 * When provided, only the listed tool names are enabled.
+	 */
+	tools?: string[];
 	/** Custom tools to register (in addition to built-in tools). */
 	customTools?: ToolDefinition[];
 
@@ -131,6 +148,23 @@ function getDefaultAgentDir(): string {
 	return getAgentDir();
 }
 
+function getOpenRouterAttributionHeaders(
+	model: Model<any>,
+	settingsManager: SettingsManager,
+): Record<string, string> | undefined {
+	if (!isInstallTelemetryEnabled(settingsManager)) {
+		return undefined;
+	}
+	if (model.provider !== "openrouter" && !model.baseUrl.includes("openrouter.ai")) {
+		return undefined;
+	}
+	return {
+		"HTTP-Referer": "https://pi.dev",
+		"X-OpenRouter-Title": "pi",
+		"X-OpenRouter-Categories": "cli-agent",
+	};
+}
+
 /**
  * Create an AgentSession with the specified options.
  *
@@ -167,7 +201,7 @@ function getDefaultAgentDir(): string {
  * ```
  */
 export async function createAgentSession(options: CreateAgentSessionOptions = {}): Promise<CreateAgentSessionResult> {
-	const cwd = options.cwd ?? process.cwd();
+	const cwd = options.cwd ?? options.sessionManager?.getCwd() ?? process.cwd();
 	const agentDir = options.agentDir ?? getDefaultAgentDir();
 	let resourceLoader = options.resourceLoader;
 
@@ -217,7 +251,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		});
 		model = result.model;
 		if (!model) {
-			modelFallbackMessage = `No models available. Use /login or set an API key environment variable. See ${join(getDocsPath(), "providers.md")}. Then use /model to select a model.`;
+			modelFallbackMessage = formatNoModelsAvailableMessage();
 		} else if (modelFallbackMessage) {
 			modelFallbackMessage += `. Using ${model.provider}/${model.id}`;
 		}
@@ -243,9 +277,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	}
 
 	const defaultActiveToolNames: ToolName[] = ["read", "bash", "edit", "write"];
-	const initialActiveToolNames: ToolName[] = options.tools
-		? options.tools.map((t) => t.name).filter((n): n is ToolName => n in allTools)
-		: defaultActiveToolNames;
+	const allowedToolNames = options.tools ?? (options.noTools === "all" ? [] : undefined);
+	const initialActiveToolNames: string[] = options.tools
+		? [...options.tools]
+		: options.noTools
+			? []
+			: defaultActiveToolNames;
 
 	let agent: Agent;
 
@@ -301,10 +338,14 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			if (!auth.ok) {
 				throw new Error(auth.error);
 			}
+			const openRouterAttributionHeaders = getOpenRouterAttributionHeaders(model, settingsManager);
 			return streamSimple(model, context, {
 				...options,
 				apiKey: auth.apiKey,
-				headers: auth.headers || options?.headers ? { ...auth.headers, ...options?.headers } : undefined,
+				headers:
+					openRouterAttributionHeaders || auth.headers || options?.headers
+						? { ...openRouterAttributionHeaders, ...auth.headers, ...options?.headers }
+						: undefined,
 			});
 		},
 		onPayload: async (payload, _model) => {
@@ -362,6 +403,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		customTools: options.customTools,
 		modelRegistry,
 		initialActiveToolNames,
+		allowedToolNames,
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,
 	});

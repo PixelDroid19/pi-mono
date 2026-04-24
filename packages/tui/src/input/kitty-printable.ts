@@ -7,6 +7,7 @@
  */
 
 import { LOCK_MASK, MODIFIERS, normalizeKittyFunctionalCodepoint } from "./key-constants.js";
+import { parseModifyOtherKeysSequence } from "./kitty-protocol.js";
 
 // =============================================================================
 // Kitty CSI-u Printable Decoding
@@ -62,4 +63,22 @@ export function decodeKittyPrintable(data: string): string | undefined {
 	} catch {
 		return undefined;
 	}
+}
+
+function decodeModifyOtherKeysPrintable(data: string): string | undefined {
+	const parsed = parseModifyOtherKeysSequence(data);
+	if (!parsed) return undefined;
+	const modifier = parsed.modifier & ~LOCK_MASK;
+	if ((modifier & ~MODIFIERS.shift) !== 0) return undefined;
+	if (!Number.isFinite(parsed.codepoint) || parsed.codepoint < 32) return undefined;
+
+	try {
+		return String.fromCodePoint(parsed.codepoint);
+	} catch {
+		return undefined;
+	}
+}
+
+export function decodePrintableKey(data: string): string | undefined {
+	return decodeKittyPrintable(data) ?? decodeModifyOtherKeysPrintable(data);
 }
