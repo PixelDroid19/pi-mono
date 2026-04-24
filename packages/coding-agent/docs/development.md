@@ -69,3 +69,15 @@ packages/
   tui/          # Terminal UI components
   coding-agent/ # CLI and interactive mode
 ```
+
+## Internal Architecture
+
+See [internal-architecture.md](internal-architecture.md) for module boundaries, one-way import rules, and placement guidance for internal helpers.
+
+### Refactor Guardrails
+
+When restructuring internal modules:
+
+- **Preserve behavior and entry points**: `src/index.ts`, `src/core/index.ts`, and `src/modes/index.ts` are stable facades. Do not remove or rename their exports.
+- **Keep existing tests unchanged**: The test suite is the regression baseline. Refactoring must not require rewriting tests.
+- **Use same-domain local barrels only**: Internal barrels (e.g. `src/cli/startup/index.ts`) may only re-export from the same folder. They must not become hidden public APIs.
