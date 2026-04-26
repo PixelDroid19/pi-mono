@@ -1,8 +1,10 @@
 /**
- * Runtime bootstrap helpers extracted from main.ts.
+ * Startup diagnostics and AgentSession option assembly.
  *
- * Handles diagnostics collection/reporting and session-options wiring,
- * preserving current startup order for InteractiveMode, print-mode, and RPC.
+ * Main CLI startup collects settings/resource diagnostics before mode dispatch
+ * and translates parsed flags into SDK session options. This module keeps that
+ * translation deterministic so interactive, print, JSON, and RPC modes receive
+ * the same model/tool/thinking configuration.
  */
 
 import { modelsAreEqual } from "@mariozechner/pi-ai";

@@ -1,8 +1,11 @@
 /**
- * Session resolution helpers extracted from main.ts.
+ * CLI session selection and fork-validation boundary.
  *
- * Handles session lookup, fork validation, confirmation prompts,
- * and missing-cwd handling without changing prompts, exits, or session semantics.
+ * Startup must resolve `--session`, `--resume`, `--continue`, and fork flags
+ * before cwd-bound runtime services are created. This module owns that ordering:
+ * resolve session files, enforce fork flag invariants, ask only the required
+ * confirmation prompts, and return a SessionManager with unchanged persistence
+ * semantics.
  */
 
 import { createInterface } from "node:readline";
@@ -13,7 +16,7 @@ import { initTheme, stopThemeWatcher } from "../../modes/interactive/theme/theme
 import type { Args } from "../args.js";
 import { selectSession } from "../session-picker.js";
 
-/** Result from resolving a session argument */
+/** Resolution result for a user-provided session argument. */
 export type ResolvedSession =
 	| { type: "path"; path: string }
 	| { type: "local"; path: string }
@@ -21,8 +24,11 @@ export type ResolvedSession =
 	| { type: "not_found"; arg: string };
 
 /**
- * Resolve a session argument to a file path.
- * If it looks like a path, use as-is. Otherwise try to match as session ID prefix.
+ * Resolve a session argument to either a path or a known session entry.
+ *
+ * Path-like values are passed through so callers can open explicit files.
+ * Non-path values are treated as session ID prefixes and matched against local
+ * and configured session directories.
  */
 export async function resolveSessionPath(
 	sessionArg: string,

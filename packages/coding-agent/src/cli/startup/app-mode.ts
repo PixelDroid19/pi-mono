@@ -1,8 +1,10 @@
 /**
- * App mode resolution helpers extracted from main.ts.
+ * CLI mode selection policy.
  *
- * Determines the runtime mode (interactive, print, json, rpc) based on
- * CLI arguments and environment state.
+ * `main.ts` uses this boundary before stdout is guarded or stdin is consumed.
+ * The priority order is intentional: explicit RPC/JSON modes win, `--print` or
+ * piped stdin force print mode, and only an attached TTY falls back to the
+ * interactive TUI.
  */
 
 import type { Args, Mode } from "../args.js";
@@ -10,7 +12,7 @@ import type { Args, Mode } from "../args.js";
 export type AppMode = "interactive" | "print" | "json" | "rpc";
 
 /**
- * Resolve the application mode from parsed CLI args and stdin state.
+ * Resolve the observable CLI mode from parsed flags and stdin availability.
  */
 export function resolveAppMode(parsed: Args, stdinIsTTY: boolean): AppMode {
 	if (parsed.mode === "rpc") {
@@ -26,7 +28,7 @@ export function resolveAppMode(parsed: Args, stdinIsTTY: boolean): AppMode {
 }
 
 /**
- * Map an AppMode to the output mode used by print-mode runners.
+ * Convert app-level modes to the narrower print-mode output contract.
  */
 export function toPrintOutputMode(appMode: AppMode): Exclude<Mode, "rpc"> {
 	return appMode === "json" ? "json" : "text";

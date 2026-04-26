@@ -1,9 +1,10 @@
 /**
- * Tool definition synthesis, active-tool state management, and tool prompt
- * snippet assembly extracted from AgentSession.
+ * Tool registry and system-prompt tool definition boundary.
  *
- * Handles building the tool registry, creating system prompt tool snippets,
- * and managing active/inactive tool state.
+ * AgentSession combines built-in tools, extension tools, and CLI tool filters
+ * into the active Agent tool list. This module owns that registry shape and the
+ * prompt snippets derived from it so model/tool changes can rebuild the system
+ * prompt without duplicating tool assembly logic.
  */
 
 import type { AgentTool } from "@mariozechner/pi-agent-core";

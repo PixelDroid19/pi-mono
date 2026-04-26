@@ -1,5 +1,9 @@
 /**
- * Stdin reading and initial message preparation helpers extracted from main.ts.
+ * Initial prompt assembly for non-RPC CLI input.
+ *
+ * CLI startup can receive prompt text from positional arguments, `@file`
+ * arguments, and piped stdin. This module preserves the merge order used by the
+ * legacy entrypoint while isolating stdin consumption from mode dispatch.
  */
 
 import type { ImageContent } from "@mariozechner/pi-ai";
@@ -8,8 +12,10 @@ import { processFileArguments } from "../file-processor.js";
 import { buildInitialMessage } from "../initial-message.js";
 
 /**
- * Read all content from piped stdin.
- * Returns undefined if stdin is a TTY (interactive terminal).
+ * Read piped stdin once and return trimmed content.
+ *
+ * Interactive terminals are left untouched so the TUI can own stdin after mode
+ * selection. Empty pipe content is treated as absent input.
  */
 export async function readPipedStdin(): Promise<string | undefined> {
 	if (process.stdin.isTTY) {
@@ -29,6 +35,13 @@ export async function readPipedStdin(): Promise<string | undefined> {
 	});
 }
 
+/**
+ * Build the initial AgentSession prompt and image attachments.
+ *
+ * `@file` content is expanded first, then piped stdin and positional messages
+ * are merged through the shared CLI initial-message builder. The function does
+ * not mutate parsed arguments; callers decide which remaining messages to send.
+ */
 export async function prepareInitialMessage(
 	parsed: Args,
 	autoResizeImages: boolean,

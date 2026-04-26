@@ -1,9 +1,9 @@
 /**
- * Prompt preflight, template expansion, and prompt preparation helpers
- * extracted from AgentSession.
+ * Prompt text expansion utilities shared by AgentSession prompt intake.
  *
- * These helpers handle the logic that runs before a prompt is sent to the agent:
- * skill command expansion, prompt template expansion, and extension input events.
+ * Skill commands, prompt templates, and extension input events all transform
+ * user text before it becomes an Agent message. These functions keep the text
+ * transformation rules independent from queueing and streaming state.
  */
 
 import { readFileSync } from "node:fs";
@@ -13,8 +13,10 @@ import { expandPromptTemplate, type PromptTemplate } from "../prompt-templates.j
 import type { ResourceLoader } from "../resource-loader.js";
 
 /**
- * Expand a /skill:name command into its full content block.
- * Returns the original text if not a skill command or skill not found.
+ * Expand a `/skill:name` command into the markdown block sent to the model.
+ *
+ * Missing skills and non-skill prompts are returned unchanged so callers can run
+ * this in the normal prompt pipeline without pre-validating command names.
  */
 export function expandSkillCommand(
 	text: string,

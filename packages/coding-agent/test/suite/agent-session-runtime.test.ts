@@ -120,7 +120,7 @@ describe("AgentSessionRuntime characterization", () => {
 		return { runtime, faux, tempDir };
 	}
 
-	it("emits session_before_switch and session_start for new and resume flows", async () => {
+	it("emits session_before_switch and session_start for new and resume paths", async () => {
 		const events: RecordedSessionEvent[] = [];
 		const { runtime } = await createRuntimeForTest((pi: ExtensionAPI) => {
 			pi.on("session_before_switch", (event) => {

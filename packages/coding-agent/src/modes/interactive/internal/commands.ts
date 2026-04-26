@@ -48,3 +48,31 @@ export function isTruthyEnvFlag(value: string | undefined): boolean {
 	if (!value) return false;
 	return value === "1" || value.toLowerCase() === "true" || value.toLowerCase() === "yes";
 }
+
+/**
+ * Extracts the optional path argument from path-based slash commands.
+ *
+ * The parser preserves quoted paths with spaces and returns undefined when the
+ * submitted command should use its default destination. It is shared by import
+ * and export handlers so both commands handle shell-style quoting consistently.
+ */
+export function parsePathCommandArgument(text: string, command: "/export" | "/import"): string | undefined {
+	const trimmed = text.trim();
+	if (trimmed === command) {
+		return undefined;
+	}
+
+	if (!trimmed.startsWith(`${command} `)) {
+		return undefined;
+	}
+
+	const raw = trimmed.slice(command.length).trim();
+	if (!raw) {
+		return undefined;
+	}
+
+	const isQuoted =
+		(raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) ||
+		(raw.startsWith("'") && raw.endsWith("'") && raw.length >= 2);
+	return isQuoted ? raw.slice(1, -1) : raw;
+}

@@ -1318,7 +1318,7 @@ export interface ProviderConfig {
 	oauth?: {
 		/** Display name for the provider in login UI. */
 		name: string;
-		/** Run the login flow, return credentials to persist. */
+		/** Run the login process, return credentials to persist. */
 		login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials>;
 		/** Refresh expired credentials, return updated credentials to persist. */
 		refreshToken(credentials: OAuthCredentials): Promise<OAuthCredentials>;

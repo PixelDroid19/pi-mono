@@ -5,91 +5,38 @@
  * createAgentSession() options. The SDK does the heavy lifting.
  */
 
-import { resolve } from "node:path";
-import { supportsXhigh } from "@mariozechner/pi-ai";
-import { ProcessTerminal, setKeybindings, TUI } from "@mariozechner/pi-tui";
 import chalk from "chalk";
 import { parseArgs, printHelp } from "./cli/args.js";
 import { listModels } from "./cli/list-models.js";
 import {
-	buildSessionOptions,
 	collectSettingsDiagnostics,
+	createMainRuntimeFactory,
 	createSessionManager,
 	isTruthyEnvFlag,
 	prepareInitialMessage,
+	promptForMissingSessionCwd,
 	readPipedStdin,
 	reportDiagnostics,
 	resolveAppMode,
+	resolveCliPaths,
 	toPrintOutputMode,
 	validateForkFlags,
 } from "./cli/startup/index.js";
 import { getAgentDir, VERSION } from "./config.js";
-import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.js";
-import {
-	type AgentSessionRuntimeDiagnostic,
-	createAgentSessionFromServices,
-	createAgentSessionServices,
-} from "./core/agent-session-services.js";
+import { createAgentSessionRuntime } from "./core/agent-session-runtime.js";
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.js";
 import { AuthStorage } from "./core/auth-storage.js";
 import { exportFromFile } from "./core/export-html/index.js";
 import type { ExtensionFactory } from "./core/extensions/types.js";
-import { KeybindingsManager } from "./core/keybindings.js";
-import { resolveModelScope } from "./core/model-resolver.js";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.js";
-import {
-	formatMissingSessionCwdPrompt,
-	getMissingSessionCwdIssue,
-	MissingSessionCwdError,
-	type SessionCwdIssue,
-} from "./core/session-cwd.js";
+import { getMissingSessionCwdIssue, MissingSessionCwdError } from "./core/session-cwd.js";
 import { SessionManager } from "./core/session-manager.js";
 import { SettingsManager } from "./core/settings-manager.js";
 import { printTimings, resetTimings, time } from "./core/timings.js";
 import { runMigrations, showDeprecationWarnings } from "./migrations.js";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.js";
-import { ExtensionSelectorComponent } from "./modes/interactive/components/extension-selector.js";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.js";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.js";
-import { isLocalPath } from "./utils/paths.js";
-
-function resolveCliPaths(cwd: string, paths: string[] | undefined): string[] | undefined {
-	return paths?.map((value) => (isLocalPath(value) ? resolve(cwd, value) : value));
-}
-
-async function promptForMissingSessionCwd(
-	issue: SessionCwdIssue,
-	settingsManager: SettingsManager,
-): Promise<string | undefined> {
-	initTheme(settingsManager.getTheme());
-	setKeybindings(KeybindingsManager.create());
-
-	return new Promise((resolve) => {
-		const ui = new TUI(new ProcessTerminal(), settingsManager.getShowHardwareCursor());
-		ui.setClearOnShrink(settingsManager.getClearOnShrink());
-
-		let settled = false;
-		const finish = (result: string | undefined) => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			ui.stop();
-			resolve(result);
-		};
-
-		const selector = new ExtensionSelectorComponent(
-			formatMissingSessionCwdPrompt(issue),
-			["Continue", "Cancel"],
-			(option) => finish(option === "Continue" ? issue.fallbackCwd : undefined),
-			() => finish(undefined),
-			{ tui: ui },
-		);
-		ui.addChild(selector);
-		ui.setFocus(selector);
-		ui.start();
-	});
-}
 
 export interface MainOptions {
 	extensionFactories?: ExtensionFactory[];
@@ -190,99 +137,15 @@ export async function main(args: string[], options?: MainOptions) {
 	const resolvedPromptTemplatePaths = resolveCliPaths(cwd, parsed.promptTemplates);
 	const resolvedThemePaths = resolveCliPaths(cwd, parsed.themes);
 	const authStorage = AuthStorage.create();
-	const createRuntime: CreateAgentSessionRuntimeFactory = async ({
-		cwd,
-		agentDir,
-		sessionManager,
-		sessionStartEvent,
-	}) => {
-		const services = await createAgentSessionServices({
-			cwd,
-			agentDir,
-			authStorage,
-			extensionFlagValues: parsed.unknownFlags,
-			resourceLoaderOptions: {
-				additionalExtensionPaths: resolvedExtensionPaths,
-				additionalSkillPaths: resolvedSkillPaths,
-				additionalPromptTemplatePaths: resolvedPromptTemplatePaths,
-				additionalThemePaths: resolvedThemePaths,
-				noExtensions: parsed.noExtensions,
-				noSkills: parsed.noSkills,
-				noPromptTemplates: parsed.noPromptTemplates,
-				noThemes: parsed.noThemes,
-				noContextFiles: parsed.noContextFiles,
-				systemPrompt: parsed.systemPrompt,
-				appendSystemPrompt: parsed.appendSystemPrompt,
-				extensionFactories: options?.extensionFactories,
-			},
-		});
-		const { settingsManager, modelRegistry, resourceLoader } = services;
-		const diagnostics: AgentSessionRuntimeDiagnostic[] = [
-			...services.diagnostics,
-			...collectSettingsDiagnostics(settingsManager, "runtime creation"),
-			...resourceLoader.getExtensions().errors.map(({ path, error }) => ({
-				type: "error" as const,
-				message: `Failed to load extension "${path}": ${error}`,
-			})),
-		];
-
-		const modelPatterns = parsed.models ?? settingsManager.getEnabledModels();
-		const scopedModels =
-			modelPatterns && modelPatterns.length > 0 ? await resolveModelScope(modelPatterns, modelRegistry) : [];
-		const {
-			options: sessionOptions,
-			cliThinkingFromModel,
-			diagnostics: sessionOptionDiagnostics,
-		} = buildSessionOptions(
-			parsed,
-			scopedModels,
-			sessionManager.buildSessionContext().messages.length > 0,
-			modelRegistry,
-			settingsManager,
-		);
-		diagnostics.push(...sessionOptionDiagnostics);
-
-		if (parsed.apiKey) {
-			if (!sessionOptions.model) {
-				diagnostics.push({
-					type: "error",
-					message: "--api-key requires a model to be specified via --model, --provider/--model, or --models",
-				});
-			} else {
-				authStorage.setRuntimeApiKey(sessionOptions.model.provider, parsed.apiKey);
-			}
-		}
-
-		const created = await createAgentSessionFromServices({
-			services,
-			sessionManager,
-			sessionStartEvent,
-			model: sessionOptions.model,
-			thinkingLevel: sessionOptions.thinkingLevel,
-			scopedModels: sessionOptions.scopedModels,
-			tools: sessionOptions.tools,
-			noTools: sessionOptions.noTools,
-			customTools: sessionOptions.customTools,
-		});
-		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
-		if (created.session.model && cliThinkingOverride) {
-			let effectiveThinking = created.session.thinkingLevel;
-			if (!created.session.model.reasoning) {
-				effectiveThinking = "off";
-			} else if (effectiveThinking === "xhigh" && !supportsXhigh(created.session.model)) {
-				effectiveThinking = "high";
-			}
-			if (effectiveThinking !== created.session.thinkingLevel) {
-				created.session.setThinkingLevel(effectiveThinking);
-			}
-		}
-
-		return {
-			...created,
-			services,
-			diagnostics,
-		};
-	};
+	const createRuntime = createMainRuntimeFactory({
+		parsed,
+		authStorage,
+		resolvedExtensionPaths,
+		resolvedSkillPaths,
+		resolvedPromptTemplatePaths,
+		resolvedThemePaths,
+		extensionFactories: options?.extensionFactories,
+	});
 	time("createRuntime");
 	const runtime = await createAgentSessionRuntime(createRuntime, {
 		cwd: sessionManager.getCwd(),

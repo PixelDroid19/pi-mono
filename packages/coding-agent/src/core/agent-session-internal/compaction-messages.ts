@@ -1,8 +1,9 @@
 /**
- * Compaction orchestration helpers extracted from AgentSession.
+ * Compaction classification helpers for AgentSession.
  *
- * Pure helper functions for compaction-related checks. The actual compaction
- * flow remains in AgentSession since it requires extensive internal state.
+ * Compaction decisions depend on assistant stop reasons and text extraction
+ * from provider messages. The high-state orchestration stays in AgentSession;
+ * this module keeps the reusable message predicates small and directly tested.
  */
 
 import type { AssistantMessage } from "@mariozechner/pi-ai";
