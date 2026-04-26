@@ -48,6 +48,7 @@ export interface AgentSessionPromptTarget {
 	_flushPendingBashMessages(): void;
 	_findLastAssistantMessage(): AssistantMessage | undefined;
 	_checkCompaction(message: AssistantMessage, skipAbortedCheck?: boolean): Promise<void>;
+	_waitForAgentEvents(): Promise<void>;
 	waitForRetry(): Promise<void>;
 }
 
@@ -185,7 +186,9 @@ export async function promptSession(
 
 	preflightResult?.(true);
 	await target.agent.prompt(messages);
+	await target._waitForAgentEvents();
 	await target.waitForRetry();
+	await target._waitForAgentEvents();
 }
 
 /**

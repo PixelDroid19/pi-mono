@@ -15,6 +15,21 @@ import type { AgentSession } from "../../../core/agent-session.js";
 import type { SettingsManager } from "../../../core/settings-manager.js";
 import { extensionForImageMimeType, readClipboardImage } from "../../../utils/clipboard-image.js";
 import type { CustomEditor } from "../components/custom-editor.js";
+import { showModelSelector as _showModelSelector, type ModelSelectorTarget } from "./model-selector-controller.js";
+import {
+	showTreeSelector as _showTreeSelector,
+	showUserMessageSelector as _showUserMessageSelector,
+	type NavigationSelectorTarget,
+} from "./navigation-selector-controller.js";
+import {
+	handleClearCommand as _handleClearCommand,
+	handleDebugCommand as _handleDebugCommand,
+	type SessionCommandTarget,
+} from "./session-command-handlers.js";
+import {
+	showSessionSelector as _showSessionSelector,
+	type SessionSelectorTarget,
+} from "./session-selector-controller.js";
 
 export interface KeyHandlerTarget {
 	defaultEditor: CustomEditor;
@@ -26,19 +41,13 @@ export interface KeyHandlerTarget {
 	ui: TUI;
 	cycleModel(direction: "forward" | "backward"): Promise<void>;
 	cycleThinkingLevel(): void;
-	handleClearCommand(): Promise<void>;
 	handleCtrlC(): void;
 	handleCtrlD(): void;
 	handleCtrlZ(): void;
-	handleDebugCommand(): void;
 	handleDequeue(): void;
 	handleFollowUp(): Promise<void>;
 	openExternalEditor(): void;
 	restoreQueuedMessagesToEditor(options?: { abort?: boolean; currentText?: string }): number;
-	showModelSelector(): void;
-	showSessionSelector(): void;
-	showTreeSelector(): void;
-	showUserMessageSelector(): void;
 	toggleThinkingBlockVisibility(): void;
 	toggleToolOutputExpansion(): void;
 	updateEditorBorderColor(): void;
@@ -61,9 +70,9 @@ export function setupKeyHandlers(target: KeyHandlerTarget): void {
 				const now = Date.now();
 				if (now - target.lastEscapeTime < 500) {
 					if (action === "tree") {
-						target.showTreeSelector();
+						_showTreeSelector(target as unknown as NavigationSelectorTarget);
 					} else {
-						target.showUserMessageSelector();
+						_showUserMessageSelector(target as unknown as NavigationSelectorTarget);
 					}
 					target.lastEscapeTime = 0;
 				} else {
@@ -79,17 +88,27 @@ export function setupKeyHandlers(target: KeyHandlerTarget): void {
 	target.defaultEditor.onAction("app.thinking.cycle", () => target.cycleThinkingLevel());
 	target.defaultEditor.onAction("app.model.cycleForward", () => target.cycleModel("forward"));
 	target.defaultEditor.onAction("app.model.cycleBackward", () => target.cycleModel("backward"));
-	target.ui.onDebug = () => target.handleDebugCommand();
-	target.defaultEditor.onAction("app.model.select", () => target.showModelSelector());
+	target.ui.onDebug = () => _handleDebugCommand(target as unknown as SessionCommandTarget);
+	target.defaultEditor.onAction("app.model.select", () =>
+		_showModelSelector(target as unknown as ModelSelectorTarget),
+	);
 	target.defaultEditor.onAction("app.tools.expand", () => target.toggleToolOutputExpansion());
 	target.defaultEditor.onAction("app.thinking.toggle", () => target.toggleThinkingBlockVisibility());
 	target.defaultEditor.onAction("app.editor.external", () => target.openExternalEditor());
 	target.defaultEditor.onAction("app.message.followUp", () => target.handleFollowUp());
 	target.defaultEditor.onAction("app.message.dequeue", () => target.handleDequeue());
-	target.defaultEditor.onAction("app.session.new", () => target.handleClearCommand());
-	target.defaultEditor.onAction("app.session.tree", () => target.showTreeSelector());
-	target.defaultEditor.onAction("app.session.fork", () => target.showUserMessageSelector());
-	target.defaultEditor.onAction("app.session.resume", () => target.showSessionSelector());
+	target.defaultEditor.onAction("app.session.new", () =>
+		_handleClearCommand(target as unknown as SessionCommandTarget),
+	);
+	target.defaultEditor.onAction("app.session.tree", () =>
+		_showTreeSelector(target as unknown as NavigationSelectorTarget),
+	);
+	target.defaultEditor.onAction("app.session.fork", () =>
+		_showUserMessageSelector(target as unknown as NavigationSelectorTarget),
+	);
+	target.defaultEditor.onAction("app.session.resume", () =>
+		_showSessionSelector(target as unknown as SessionSelectorTarget),
+	);
 
 	target.defaultEditor.onChange = (text: string) => {
 		const wasBashMode = target.isBashMode;

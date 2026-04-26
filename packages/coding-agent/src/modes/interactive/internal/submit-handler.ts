@@ -8,6 +8,48 @@
  */
 
 import type { AgentSession } from "../../../core/agent-session.js";
+import { showOAuthSelector as _showOAuthSelector, type AuthSelectorTarget } from "./auth-selector-controller.js";
+import {
+	handleArminSaysHi as _handleArminSaysHi,
+	handleDementedDelves as _handleDementedDelves,
+	handleHotkeysCommand as _handleHotkeysCommand,
+	type LowerCommandActionsTarget,
+} from "./lower-command-actions.js";
+import { handleModelCommand as _handleModelCommand, type ModelAuthActionsTarget } from "./model-auth-actions.js";
+import { showModelsSelector as _showModelsSelector, type ModelSelectorTarget } from "./model-selector-controller.js";
+import {
+	showTreeSelector as _showTreeSelector,
+	showUserMessageSelector as _showUserMessageSelector,
+	type NavigationSelectorTarget,
+} from "./navigation-selector-controller.js";
+import { handleReloadCommand as _handleReloadCommand, type ReloadCommandTarget } from "./reload-command.js";
+import {
+	handleChangelogCommand as _handleChangelogCommand,
+	handleClearCommand as _handleClearCommand,
+	handleCompactCommand as _handleCompactCommand,
+	handleCopyCommand as _handleCopyCommand,
+	handleDebugCommand as _handleDebugCommand,
+	handleExportCommand as _handleExportCommand,
+	handleImportCommand as _handleImportCommand,
+	handleNameCommand as _handleNameCommand,
+	handleSessionCommand as _handleSessionCommand,
+	type SessionCommandTarget,
+} from "./session-command-handlers.js";
+import {
+	updatePendingMessagesDisplay as _updatePendingMessagesDisplay,
+	type SessionFeedbackTarget,
+} from "./session-feedback-controller.js";
+import { handleCloneCommand as _handleCloneCommand, type SessionRuntimeTarget } from "./session-runtime-controller.js";
+import {
+	showSessionSelector as _showSessionSelector,
+	type SessionSelectorTarget,
+} from "./session-selector-controller.js";
+import {
+	showSettingsSelector as _showSettingsSelector,
+	type SettingsSelectorTarget,
+} from "./settings-selector-controller.js";
+import { handleShareCommand as _handleShareCommand, type InteractiveShareCommandTarget } from "./share-command.js";
+import { handleSkillsCommand as _handleSkillsCommand, type SkillSelectorTarget } from "./skill-selector-controller.js";
 
 interface SubmitEditor {
 	addToHistory?(text: string): void;
@@ -33,36 +75,12 @@ export interface InteractiveSubmitTarget {
 	onInputCallback?: (text: string) => void;
 	ui: SubmitRenderer;
 	flushPendingBashComponents(): void;
-	handleArminSaysHi(): void;
 	handleBashCommand(command: string, excludeFromContext?: boolean): Promise<void>;
-	handleChangelogCommand(): void;
-	handleClearCommand(): Promise<void>;
-	handleCloneCommand(): Promise<void>;
-	handleCompactCommand(customInstructions?: string): Promise<void>;
-	handleCopyCommand(): Promise<void>;
-	handleDebugCommand(): void;
-	handleDementedDelves(): void;
-	handleExportCommand(text: string): Promise<void>;
-	handleImportCommand(text: string): Promise<void>;
-	handleModelCommand(searchTerm?: string): Promise<void>;
-	handleHotkeysCommand(): void;
-	handleNameCommand(text: string): void;
-	handleReloadCommand(): Promise<void>;
-	handleSessionCommand(): void;
-	handleShareCommand(): Promise<void>;
-	handleSkillsCommand(searchTerm?: string): Promise<void>;
 	isExtensionCommand(text: string): boolean;
 	queueCompactionMessage(text: string, mode: "steer" | "followUp"): void;
-	showModelsSelector(): Promise<void>;
-	showOAuthSelector(action: "login" | "logout"): void;
-	showSessionSelector(): void;
-	showSettingsSelector(): void;
-	showTreeSelector(): void;
-	showUserMessageSelector(): void;
 	showWarning(message: string): void;
 	shutdown(): Promise<void>;
 	updateEditorBorderColor(): void;
-	updatePendingMessagesDisplay(): void;
 }
 
 /** Dispatch a submitted editor value to the matching interactive action. */
@@ -72,125 +90,125 @@ export async function handleEditorSubmit(target: InteractiveSubmitTarget, text: 
 
 	// Handle commands
 	if (text === "/settings") {
-		target.showSettingsSelector();
+		_showSettingsSelector(target as unknown as SettingsSelectorTarget);
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/scoped-models") {
 		target.editor.setText("");
-		await target.showModelsSelector();
+		await _showModelsSelector(target as unknown as ModelSelectorTarget);
 		return;
 	}
 	if (text === "/model" || text.startsWith("/model ")) {
 		const searchTerm = text.startsWith("/model ") ? text.slice(7).trim() : undefined;
 		target.editor.setText("");
-		await target.handleModelCommand(searchTerm);
+		await _handleModelCommand(target as unknown as ModelAuthActionsTarget, searchTerm);
 		return;
 	}
 	if (text === "/export" || text.startsWith("/export ")) {
-		await target.handleExportCommand(text);
+		await _handleExportCommand(target as unknown as SessionCommandTarget, text);
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/import" || text.startsWith("/import ")) {
-		await target.handleImportCommand(text);
+		await _handleImportCommand(target as unknown as SessionCommandTarget, text);
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/share") {
-		await target.handleShareCommand();
+		await _handleShareCommand(target as unknown as InteractiveShareCommandTarget);
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/copy") {
-		await target.handleCopyCommand();
+		await _handleCopyCommand(target as unknown as SessionCommandTarget);
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/name" || text.startsWith("/name ")) {
-		target.handleNameCommand(text);
+		_handleNameCommand(target as unknown as SessionCommandTarget, text);
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/session") {
-		target.handleSessionCommand();
+		_handleSessionCommand(target as unknown as SessionCommandTarget);
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/changelog") {
-		target.handleChangelogCommand();
+		_handleChangelogCommand(target as unknown as SessionCommandTarget);
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/hotkeys") {
-		target.handleHotkeysCommand();
+		_handleHotkeysCommand(target as unknown as LowerCommandActionsTarget, process.platform);
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/fork") {
-		target.showUserMessageSelector();
+		_showUserMessageSelector(target as unknown as NavigationSelectorTarget);
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/clone") {
 		target.editor.setText("");
-		await target.handleCloneCommand();
+		await _handleCloneCommand(target as unknown as SessionRuntimeTarget);
 		return;
 	}
 	if (text === "/tree") {
-		target.showTreeSelector();
+		_showTreeSelector(target as unknown as NavigationSelectorTarget);
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/login") {
-		target.showOAuthSelector("login");
+		await _showOAuthSelector(target as unknown as AuthSelectorTarget, "login");
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/logout") {
-		target.showOAuthSelector("logout");
+		await _showOAuthSelector(target as unknown as AuthSelectorTarget, "logout");
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/new") {
 		target.editor.setText("");
-		await target.handleClearCommand();
+		await _handleClearCommand(target as unknown as SessionCommandTarget);
 		return;
 	}
 	if (text === "/compact" || text.startsWith("/compact ")) {
 		const customInstructions = text.startsWith("/compact ") ? text.slice(9).trim() : undefined;
 		target.editor.setText("");
-		await target.handleCompactCommand(customInstructions);
+		await _handleCompactCommand(target as unknown as SessionCommandTarget, customInstructions);
 		return;
 	}
 	if (text === "/reload") {
 		target.editor.setText("");
-		await target.handleReloadCommand();
+		await _handleReloadCommand(target as unknown as ReloadCommandTarget);
 		return;
 	}
 	if (text === "/skills" || text.startsWith("/skills ")) {
 		const searchTerm = text.startsWith("/skills ") ? text.slice(8).trim() : undefined;
 		target.editor.setText("");
-		await target.handleSkillsCommand(searchTerm);
+		await _handleSkillsCommand(target as unknown as SkillSelectorTarget, searchTerm);
 		return;
 	}
 	if (text === "/debug") {
-		target.handleDebugCommand();
+		_handleDebugCommand(target as unknown as SessionCommandTarget);
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/arminsayshi") {
-		target.handleArminSaysHi();
+		_handleArminSaysHi(target as unknown as LowerCommandActionsTarget);
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/dementedelves") {
-		target.handleDementedDelves();
+		_handleDementedDelves(target as unknown as LowerCommandActionsTarget);
 		target.editor.setText("");
 		return;
 	}
 	if (text === "/resume") {
-		target.showSessionSelector();
+		_showSessionSelector(target as unknown as SessionSelectorTarget);
 		target.editor.setText("");
 		return;
 	}
@@ -236,7 +254,7 @@ export async function handleEditorSubmit(target: InteractiveSubmitTarget, text: 
 		target.editor.addToHistory?.(text);
 		target.editor.setText("");
 		await target.session.prompt(text, { streamingBehavior: "steer" });
-		target.updatePendingMessagesDisplay();
+		_updatePendingMessagesDisplay(target as unknown as SessionFeedbackTarget);
 		target.ui.requestRender();
 		return;
 	}

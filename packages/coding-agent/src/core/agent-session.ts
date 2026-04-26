@@ -289,6 +289,7 @@ export class AgentSession {
 			this._isRetryableError,
 			this._flushPendingBashMessages,
 			this._extractUserMessageText,
+			this._waitForAgentEvents,
 			this.waitForRetry,
 		];
 	}
@@ -411,6 +412,10 @@ export class AgentSession {
 
 	private async _processAgentEvent(event: AgentEvent): Promise<void> {
 		await processAgentEvent(this as unknown as AgentSessionEventTarget, event);
+	}
+
+	private async _waitForAgentEvents(): Promise<void> {
+		await this._agentEventQueue.catch(() => {});
 	}
 
 	/** Resolve the pending retry promise */
