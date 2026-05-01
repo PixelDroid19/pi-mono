@@ -71,6 +71,7 @@ export interface InteractiveStartupTarget {
 	setupEditorSubmitHandler(): void;
 	setupKeyHandlers(): void;
 	updateAvailableProviderCount(): Promise<void>;
+	createBaseAutocompleteProvider?(): AutocompleteProvider;
 	updateEditorBorderColor(): void;
 }
 
@@ -145,7 +146,7 @@ export function createBaseAutocompleteProvider(target: InteractiveStartupTarget)
 
 /** Rebuild autocomplete and attach it to both the default and active editor. */
 export function setupAutocompleteProvider(target: InteractiveStartupTarget): void {
-	let provider = createBaseAutocompleteProvider(target);
+	let provider = target.createBaseAutocompleteProvider?.() ?? createBaseAutocompleteProvider(target);
 	for (const wrapProvider of target.autocompleteProviderWrappers) {
 		provider = wrapProvider(provider);
 	}

@@ -11,6 +11,7 @@ import type { Api, Model } from "@mariozechner/pi-ai";
 import type { AgentSession } from "../../../core/agent-session.js";
 import type { FooterDataProvider } from "../../../core/footer-data-provider.js";
 import { findExactModelReferenceMatch } from "../../../core/model-resolver.js";
+import type { SettingsManager } from "../../../core/settings-manager.js";
 import type { FooterComponent } from "../components/footer.js";
 
 const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING =
@@ -25,6 +26,7 @@ export interface ModelAuthActionsTarget {
 	footer: FooterComponent;
 	footerDataProvider: FooterDataProvider;
 	session: AgentSession;
+	settingsManager: SettingsManager;
 	checkDaxnutsEasterEgg(model: { provider: string; id: string }): void;
 	showError(message: string): void;
 	showModelSelector(initialSearchInput?: string): void;
@@ -72,6 +74,9 @@ export async function maybeWarnAboutAnthropicSubscriptionAuth(
 		return;
 	}
 	if (!model || model.provider !== "anthropic") {
+		return;
+	}
+	if (target.settingsManager.getWarnings().anthropicExtraUsage === false) {
 		return;
 	}
 

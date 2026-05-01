@@ -1,3 +1,6 @@
+import { spawn } from "node:child_process";
+import { DefaultPackageManager } from "../../../core/package-manager.js";
+
 /**
  * Session action helpers extracted from InteractiveMode.
  *
@@ -13,8 +16,6 @@ import type { SettingsManager } from "../../../core/settings-manager.js";
  */
 export async function checkTmuxKeyboardSetup(): Promise<string | undefined> {
 	if (!process.env.TMUX) return undefined;
-
-	const { spawn } = await import("child_process");
 
 	const runTmuxShow = (option: string): Promise<string | undefined> => {
 		return new Promise((resolve) => {
@@ -72,7 +73,6 @@ export async function checkForPackageUpdates(
 	}
 
 	try {
-		const { DefaultPackageManager } = await import("../../../core/package-manager.js");
 		const packageManager = new DefaultPackageManager({
 			cwd,
 			agentDir,

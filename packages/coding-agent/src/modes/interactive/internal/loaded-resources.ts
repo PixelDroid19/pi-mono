@@ -77,7 +77,7 @@ function formatExtensionDisplayPath(resourcePath: string): string {
 		.replace(/\/index\.js$/, "");
 }
 
-function getCompactPathLabel(resourcePath: string, sourceInfo?: SourceInfo): string {
+export function getCompactPathLabel(resourcePath: string, sourceInfo?: SourceInfo): string {
 	const shortPath = getShortPath(resourcePath, sourceInfo);
 	const normalizedPath = shortPath.replace(/\\/g, "/");
 	const segments = normalizedPath.split("/").filter((segment) => segment.length > 0 && segment !== "~");
@@ -119,14 +119,14 @@ function getCompactExtensionLabel(resourcePath: string, sourceInfo?: SourceInfo)
 	return `${sourceLabel}:${packagePath}`;
 }
 
-function getCompactDisplayPathSegments(resourcePath: string): string[] {
+export function getCompactDisplayPathSegments(resourcePath: string): string[] {
 	return formatDisplayPath(resourcePath)
 		.replace(/\\/g, "/")
 		.split("/")
 		.filter((segment) => segment.length > 0 && segment !== "~");
 }
 
-function getCompactNonPackageExtensionLabel(
+export function getCompactNonPackageExtensionLabel(
 	resourcePath: string,
 	index: number,
 	allPaths: Array<{ path: string; segments: string[] }>,
@@ -153,7 +153,7 @@ function getCompactNonPackageExtensionLabel(
 	return segments.join("/");
 }
 
-function getCompactExtensionLabels(extensions: LoadedResourcePath[]): string[] {
+export function getCompactExtensionLabels(extensions: LoadedResourcePath[]): string[] {
 	const nonPackageExtensions = extensions
 		.map((extension) => {
 			const segments = getCompactDisplayPathSegments(extension.path);
@@ -183,7 +183,7 @@ function getCompactExtensionLabels(extensions: LoadedResourcePath[]): string[] {
 	});
 }
 
-function buildScopeGroups(items: LoadedResourcePath[]): ScopeGroup[] {
+export function buildScopeGroups(items: LoadedResourcePath[]): ScopeGroup[] {
 	const groups: Record<"user" | "project" | "path", ScopeGroup> = {
 		user: { scope: "user", paths: [], packages: new Map() },
 		project: { scope: "project", paths: [], packages: new Map() },
@@ -208,7 +208,7 @@ function buildScopeGroups(items: LoadedResourcePath[]): ScopeGroup[] {
 	);
 }
 
-function formatScopeGroups(
+export function formatScopeGroups(
 	groups: ScopeGroup[],
 	options: {
 		formatPackagePath: (item: LoadedResourcePath, source: string) => string;
@@ -317,8 +317,9 @@ function formatDiagnostics(diagnostics: readonly ResourceDiagnostic[], sourceInf
 
 function getBuiltInCommandConflictDiagnostics(extensionRunner: ExtensionRunner): ResourceDiagnostic[] {
 	const builtinNames = new Set(BUILTIN_SLASH_COMMANDS.map((command) => command.name));
-	return extensionRunner
-		.getRegisteredCommands()
+	const commands =
+		typeof extensionRunner.getRegisteredCommands === "function" ? extensionRunner.getRegisteredCommands() : [];
+	return commands
 		.filter((command) => builtinNames.has(command.name))
 		.map((command) => ({
 			type: "warning" as const,
@@ -362,7 +363,8 @@ function formatCompactList(items: string[], options?: { sort?: boolean }): strin
 export function showLoadedResources(host: LoadedResourcesHost, options?: ShowLoadedResourcesOptions): void {
 	const target: LoadedResourcesTarget = {
 		chatContainer: host.chatContainer,
-		optionsVerbose: host.optionsVerbose,
+		optionsVerbose:
+			host.optionsVerbose ?? (host as unknown as { options?: { verbose?: boolean } }).options?.verbose ?? false,
 		session: host.session,
 		sessionCwd: host.sessionManager.getCwd(),
 		settingsManager: host.settingsManager,
@@ -383,6 +385,16 @@ export function showLoadedResources(host: LoadedResourcesHost, options?: ShowLoa
 			path: extension.path,
 			sourceInfo: extension.sourceInfo,
 		}));
+	const optionalHost = host as unknown as {
+		buildScopeGroups?: typeof buildScopeGroups;
+		formatScopeGroups?: typeof formatScopeGroups;
+		formatDisplayPath?: typeof formatDisplayPath;
+		getShortPath?: typeof getShortPath;
+	};
+	const buildResourceScopeGroups = optionalHost.buildScopeGroups ?? buildScopeGroups;
+	const formatResourceScopeGroups = optionalHost.formatScopeGroups ?? formatScopeGroups;
+	const formatResourceDisplayPath = optionalHost.formatDisplayPath ?? formatDisplayPath;
+	const getResourceShortPath = optionalHost.getShortPath ?? getShortPath;
 	const sourceInfos = new Map<string, SourceInfo>();
 	for (const extension of extensions) {
 		if (extension.sourceInfo) {
@@ -421,12 +433,12 @@ export function showLoadedResources(host: LoadedResourcesHost, options?: ShowLoa
 
 		const skills = skillsResult.skills;
 		if (skills.length > 0) {
-			const groups = buildScopeGroups(
+			const groups = buildResourceScopeGroups(
 				skills.map((skill) => ({ path: skill.filePath, sourceInfo: skill.sourceInfo })),
 			);
-			const skillList = formatScopeGroups(groups, {
-				formatPath: (item) => formatDisplayPath(item.path),
-				formatPackagePath: (item) => getShortPath(item.path, item.sourceInfo),
+			const skillList = formatResourceScopeGroups(groups, {
+				formatPath: (item) => formatResourceDisplayPath(item.path),
+				formatPackagePath: (item) => getResourceShortPath(item.path, item.sourceInfo),
 			});
 			const skillCompactList = formatCompactList(skills.map((skill) => skill.name));
 			addLoadedSection(target, "Skills", skillCompactList, skillList);
@@ -434,11 +446,11 @@ export function showLoadedResources(host: LoadedResourcesHost, options?: ShowLoa
 
 		const templates = target.session.promptTemplates;
 		if (templates.length > 0) {
-			const groups = buildScopeGroups(
+			const groups = buildResourceScopeGroups(
 				templates.map((template) => ({ path: template.filePath, sourceInfo: template.sourceInfo })),
 			);
 			const templateByPath = new Map(templates.map((template) => [template.filePath, template]));
-			const templateList = formatScopeGroups(groups, {
+			const templateList = formatResourceScopeGroups(groups, {
 				formatPath: (item) => {
 					const template = templateByPath.get(item.path);
 					return template ? `/${template.name}` : formatDisplayPath(item.path);
@@ -453,8 +465,8 @@ export function showLoadedResources(host: LoadedResourcesHost, options?: ShowLoa
 		}
 
 		if (extensions.length > 0) {
-			const groups = buildScopeGroups(extensions);
-			const extList = formatScopeGroups(groups, {
+			const groups = buildResourceScopeGroups(extensions);
+			const extList = formatResourceScopeGroups(groups, {
 				formatPath: (item) => formatExtensionDisplayPath(item.path),
 				formatPackagePath: (item) => formatExtensionDisplayPath(getShortPath(item.path, item.sourceInfo)),
 			});
@@ -464,15 +476,15 @@ export function showLoadedResources(host: LoadedResourcesHost, options?: ShowLoa
 
 		const customThemes = themesResult.themes.filter((loadedTheme) => loadedTheme.sourcePath);
 		if (customThemes.length > 0) {
-			const groups = buildScopeGroups(
+			const groups = buildResourceScopeGroups(
 				customThemes.map((loadedTheme) => ({
 					path: loadedTheme.sourcePath!,
 					sourceInfo: loadedTheme.sourceInfo,
 				})),
 			);
-			const themeList = formatScopeGroups(groups, {
-				formatPath: (item) => formatDisplayPath(item.path),
-				formatPackagePath: (item) => getShortPath(item.path, item.sourceInfo),
+			const themeList = formatResourceScopeGroups(groups, {
+				formatPath: (item) => formatResourceDisplayPath(item.path),
+				formatPackagePath: (item) => getResourceShortPath(item.path, item.sourceInfo),
 			});
 			const themeCompactList = formatCompactList(
 				customThemes.map(

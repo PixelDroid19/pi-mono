@@ -1,91 +1,103 @@
 # Internal Architecture
 
-This document describes the internal module boundaries, ownership rules, and placement guidance for `packages/coding-agent`. It is aimed at maintainers working on refactoring or extending internal logic.
+This document defines the internal ownership boundaries for `packages/coding-agent`. It is for maintainers who are changing runtime behavior, session persistence, extension wiring, or the interactive TUI. Public import paths stay stable; implementation detail moves behind internal modules.
 
 ## Stable Facades
 
-The following files are **stable public entry points**. Their exports must not be removed or renamed without a migration path. Internal refactoring must happen behind these facades.
+These files are stable import paths. Do not remove or rename their exports without an explicit migration plan.
 
 | Facade | Role |
 |--------|------|
 | `src/index.ts` | SDK public surface for external consumers |
 | `src/core/index.ts` | Core abstractions re-exported for SDK and modes |
-| `src/modes/index.ts` | Mode entry points (InteractiveMode, runPrintMode, runRpcMode) |
+| `src/core/agent-session.ts` | Public `AgentSession` import path; implementation delegates to `core/agent-session-internal/` |
+| `src/core/session-manager.ts` | Public session records and `SessionManager` import path; implementation delegates to `core/session-manager-internal/` |
+| `src/core/package-manager.ts` | Public package manager contracts and `DefaultPackageManager` import path; implementation delegates to `core/package-manager-internal/` |
+| `src/modes/interactive/interactive-mode.ts` | Public `InteractiveMode` import path; implementation delegates to `modes/interactive/internal/` |
+| `src/modes/index.ts` | Mode entry points (`InteractiveMode`, print mode, RPC mode) |
 
-## One-Way Import Rules
+## Dependency Rules
 
-Dependency direction flows **inward** and **downward**:
+Dependency direction flows inward and downward:
 
-```
-src/main.ts (CLI entry)
-  -> src/cli/startup/*        (startup helpers)
-  -> src/modes/*               (run modes)
-       -> src/core/*           (core abstractions)
-            -> src/utils/*     (pure utilities)
+```text
+src/main.ts
+  -> src/cli/startup/*
+  -> src/modes/*
+       -> src/core/*
+            -> src/utils/*
 ```
 
 Rules:
 - `src/main.ts` is the CLI entry point. Nothing inside `src/` may import from `src/main.ts`.
-- `src/modes/*` may depend on `src/core/*` but never the reverse.
-- `src/core/*` may depend on `src/utils/*` but never on `src/modes/*`.
-- Nothing inside `src/` may import from `src/index.ts`, `src/core/index.ts`, or `src/modes/index.ts`. Barrels are for external consumers only.
-- Internal barrels (e.g. `src/cli/startup/index.ts`) may only re-export from the same folder.
+- `src/modes/*` may depend on `src/core/*`; `src/core/*` must not depend on `src/modes/*` except renderer callback types already isolated behind tool render contracts.
+- Public barrels (`src/index.ts`, `src/core/index.ts`, `src/modes/index.ts`) are for external consumers. Internal modules should import concrete files.
+- Internal barrels may only re-export files from the same internal boundary.
+- Do not introduce inline imports in production code. Lazy provider loading must use explicit top-level helper abstractions and documented ownership.
 
-## Internal Helper Placement
+## Current Internal Boundaries
 
-When extracting logic from a hotspot file, use one of these patterns:
+### Agent session
 
-### Sibling `internal/` folder
+`core/agent-session.ts` is a facade. The implementation lives in `core/agent-session-internal/agent-session.ts` and delegates behavior to focused modules:
 
-For classes that remain as facades (e.g. `interactive-mode.ts`, `agent-session.ts`):
+- `prompt-queue.ts`: prompt submission, extension commands, skill expansion, steering and follow-up queues.
+- `session-events.ts`: agent event persistence, extension event forwarding, retry lifecycle, and queue draining.
+- `model-state.ts`: model selection, scoped model cycling, thinking levels, and system prompt rebuilds.
+- `reload.ts`: extension binding, runtime rebuild, tool registry refresh, and resource reload.
+- `session-compaction.ts`, `tree-navigation.ts`, `session-export.ts`, `bash-execution.ts`: isolated session operations with observable side effects.
 
-```
-src/modes/interactive/
-  interactive-mode.ts          # Facade class (stable surface)
-  internal/
-    bootstrap.ts               # Startup/init helpers
-    commands.ts                # Slash-command handlers
-    session-actions.ts         # Session management flows
-```
+### Session manager
 
-### Sibling folder with a barrel
+`core/session-manager.ts` is the stable public import path. Internals are split by responsibility:
 
-For orchestration files (e.g. `main.ts`):
+- `session-manager-internal/records.ts`: entry types, migrations, JSONL parsing, context building, session listing helpers, and default session directory resolution.
+- `session-manager-internal/session-manager.ts`: append-only persistence, leaf movement, labels, branch creation, import/open/fork factory methods, and list orchestration.
 
-```
-src/cli/
-  startup/
-    index.ts                   # Local barrel, re-exports only from this folder
-    app-mode.ts                # App mode resolution
-    session-resolution.ts      # Session lookup and fork logic
-    runtime-bootstrap.ts       # Runtime/service creation
-    initial-message.ts         # Stdin and initial message prep
-```
+Session files are append-only JSONL trees. Any helper that changes `leafId`, writes entries, rewrites files, or migrates records must document the state transition it owns.
 
-### Rules for new internal modules
+### Package manager
 
-1. Helpers receive **narrow context objects**, not broad class instances or facades.
-2. New files are internal-only. Do not add them to any barrel that external consumers use.
-3. Extract only when the logic is independently testable, reusable, or reduces hotspot size meaningfully. Do not over-extract.
-4. Each extracted helper should have a single, clear responsibility.
+`core/package-manager.ts` is the stable public import path. Internals are split by responsibility:
 
-## Extension Points
+- `package-manager-internal/resource-discovery.ts`: resource types, filter patterns, manifests, auto-discovery, precedence, and environment helpers.
+- `package-manager-internal/default-package-manager.ts`: install/remove/update orchestration for npm, git, local sources, and resource aggregation.
 
-- **New slash commands**: Register in `src/core/slash-commands.ts` (built-in) or via the extension API.
-- **New tools**: Add to `src/core/tools/` and register in `src/core/tools/index.ts`.
-- **New keybindings**: Use namespaced keybinding IDs via the keybindings system. Never hard-code `matchesKey(..., "ctrl+x")`.
-- **New prompt templates**: Add files to the prompt-templates directories (user, project, or CLI).
-- **New themes**: Add to theme directories; use `src/modes/interactive/theme/theme.ts` APIs.
+Resource discovery must remain deterministic: project resources outrank user resources, explicit settings outrank auto-discovery, and package resources have the lowest precedence.
 
-## Regression Baseline
+### Interactive mode
 
-The existing test suite under `test/` is the authoritative regression baseline. Refactoring must not require rewriting or modifying existing tests. New tests should only be added for currently uncovered pure helpers.
+`modes/interactive/interactive-mode.ts` is the stable public import path. The implementation lives in `modes/interactive/internal/interactive-mode-impl.ts` and delegates to controllers:
 
-## Extraction Sequence
+- `interactive-runner.ts`: startup checks, initial prompts, and the blocking user-input loop.
+- `interactive-mode-state.ts`: long-lived TUI objects, session accessors, and compatibility adapters shared by controller targets.
+- `interactive-mode-options.ts`: startup-only inputs captured by the CLI before the TUI lifecycle begins.
+- `interactive-startup.ts`: TUI initialization, autocomplete setup, startup notices, and first render.
+- `session-runtime-controller.ts`: session replacement, extension rebinding, runtime settings, and fatal runtime errors.
+- `session-view-controller.ts`: chat reconstruction, status rendering, message history population, and tool result rendering.
+- `session-event-renderer.ts`: live agent event rendering.
+- `extension-ui-controller.ts`: extension-owned selectors, dialogs, custom editor surfaces, widgets, headers, footers, and terminal input listeners.
+- `submit-handler.ts` and `key-handler-controller.ts`: command dispatch and configurable keybindings.
 
-The recommended order for hotspot extraction follows a seam-first approach:
+Interactive helpers receive narrow target interfaces instead of the concrete class. Add methods to those interfaces only when the helper actually needs the state or callback.
 
-1. `src/main.ts` -- startup helpers are the easiest to isolate (pure functions, minimal state)
-2. `src/modes/interactive/interactive-mode.ts` -- already has component seams via `components/`
-3. `src/core/agent-session.ts` -- highest risk, should move after patterns are proven
-4. Supporting managers (`resource-loader`, `session-manager`, `settings-manager`, `package-manager`) -- only if still justified after 1-3
+## JSDoc Policy
+
+Use JSDoc for contracts that affect other developers:
+
+- Public exports and stable internal target interfaces.
+- Helpers that mutate session state, files, process state, terminal state, extension bindings, or runtime registries.
+- Non-obvious invariants such as append-only JSONL ordering, resource precedence, retry ordering, and extension reload ownership.
+
+Do not add comments that restate a variable name or describe a trivial assignment. Documentation should explain ownership, side effects, inputs that must already be normalized, and observable behavior.
+
+## Validation Gates
+
+Refactors must preserve behavior and pass the relevant gates:
+
+- `npm run check` from the repo root after code changes.
+- `npm run check:lint:oxc` or `npx oxlint <touched-files>` for a non-mutating lint pass.
+- Specific Vitest files from `packages/coding-agent` when tests are added or modified.
+- TUI smoke with `./pi-test.sh` when interactive mode startup, rendering, key handling, or submit dispatch changes.
+
+`npm run dev`, `npm run build`, and `npm test` are intentionally not part of this workflow unless explicitly requested.
