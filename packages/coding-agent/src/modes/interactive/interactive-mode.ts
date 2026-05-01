@@ -332,6 +332,9 @@ export class InteractiveMode {
 	protected extensionSelector: ExtensionSelectorComponent | undefined = undefined;
 	protected extensionInput: ExtensionInputComponent | undefined = undefined;
 	protected extensionEditor: ExtensionEditorComponent | undefined = undefined;
+	protected editorComponentFactory:
+		| ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => EditorComponent)
+		| undefined = undefined;
 	protected extensionTerminalInputUnsubscribers = new Set<() => void>();
 
 	// Extension widgets (components rendered above/below the editor)

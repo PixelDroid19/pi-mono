@@ -13,6 +13,7 @@ export {
 	getSegmenter,
 	isPunctuationChar,
 	isWhitespaceChar,
+	normalizeTerminalOutput,
 	visibleWidth,
 } from "./text/width.js";
 export { wrapTextWithAnsi } from "./text/wrap.js";

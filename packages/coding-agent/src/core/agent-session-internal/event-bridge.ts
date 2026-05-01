@@ -5,7 +5,7 @@
  * event forwarding protocol between the agent core and extension runner.
  */
 
-import type { AgentEvent } from "@mariozechner/pi-agent-core";
+import type { AgentEvent, AgentMessage } from "@mariozechner/pi-agent-core";
 import type {
 	ExtensionRunner,
 	MessageEndEvent,
@@ -17,6 +17,15 @@ import type {
 	TurnEndEvent,
 	TurnStartEvent,
 } from "../extensions/index.js";
+
+function replaceMessageInPlace(target: AgentMessage, replacement: AgentMessage): void {
+	const mutableTarget = target as unknown as Record<string, unknown>;
+	for (const key of Object.keys(mutableTarget)) {
+		delete mutableTarget[key];
+	}
+
+	Object.assign(target, replacement);
+}
 
 /**
  * Forward an agent event to the extension runner.
@@ -70,7 +79,10 @@ export async function forwardAgentEventToExtensions(
 			type: "message_end",
 			message: event.message,
 		};
-		await extensionRunner.emit(extensionEvent);
+		const replacement = await extensionRunner.emitMessageEnd(extensionEvent);
+		if (replacement) {
+			replaceMessageInPlace(event.message, replacement);
+		}
 	} else if (event.type === "tool_execution_start") {
 		const extensionEvent: ToolExecutionStartEvent = {
 			type: "tool_execution_start",

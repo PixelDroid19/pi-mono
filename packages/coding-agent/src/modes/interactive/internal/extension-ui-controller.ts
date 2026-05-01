@@ -60,6 +60,9 @@ export interface ExtensionUiTarget {
 	customFooter: DisposableComponent | undefined;
 	customHeader: DisposableComponent | undefined;
 	defaultEditor: CustomEditor;
+	editorComponentFactory:
+		| ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => EditorComponent)
+		| undefined;
 	defaultHiddenThinkingLabel: string;
 	defaultWorkingMessage: string;
 	editor: EditorComponent;
@@ -332,6 +335,7 @@ export function createExtensionUIContext(target: ExtensionUiTarget): ExtensionUI
 			target.setupAutocompleteProvider();
 		},
 		setEditorComponent: (factory) => setCustomEditorComponent(target, factory),
+		getEditorComponent: () => target.editorComponentFactory,
 		get theme() {
 			return theme;
 		},
@@ -506,6 +510,7 @@ export function setCustomEditorComponent(
 	factory: ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => EditorComponent) | undefined,
 ): void {
 	const currentText = target.editor.getText();
+	target.editorComponentFactory = factory;
 	target.editorContainer.clear();
 
 	if (factory) {
