@@ -21,7 +21,7 @@ if (typeof process !== "undefined" && (process.versions?.node || process.version
 }
 
 import { getEnvApiKey } from "../env-api-keys.js";
-import { supportsXhigh } from "../models.js";
+import { clampThinkingLevel } from "../models.js";
 import type {
 	Api,
 	AssistantMessage,
@@ -35,7 +35,7 @@ import type {
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.js";
-import { buildBaseOptions, clampReasoning } from "./simple-options.js";
+import { buildBaseOptions } from "./simple-options.js";
 
 // ============================================================================
 // Configuration
@@ -165,7 +165,7 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 				websocketRequestId,
 			);
 			const bodyJson = JSON.stringify(body);
-			const transport = options?.transport || "sse";
+			const transport = options?.transport || "auto";
 
 			if (transport !== "sse") {
 				let websocketStarted = false;
@@ -299,7 +299,8 @@ export const streamSimpleOpenAICodexResponses: StreamFunction<"openai-codex-resp
 	}
 
 	const base = buildBaseOptions(model, options, apiKey);
-	const reasoningEffort = supportsXhigh(model) ? options?.reasoning : clampReasoning(options?.reasoning);
+	const clampedReasoning = options?.reasoning ? clampThinkingLevel(model, options.reasoning) : undefined;
+	const reasoningEffort = clampedReasoning === "off" ? undefined : clampedReasoning;
 
 	return streamOpenAICodexResponses(model, context, {
 		...base,
@@ -346,25 +347,19 @@ function buildRequestBody(
 	}
 
 	if (options?.reasoningEffort !== undefined) {
-		body.reasoning = {
-			effort: clampReasoningEffort(model.id, options.reasoningEffort),
-			summary: options.reasoningSummary ?? "auto",
-		};
+		const effort =
+			options.reasoningEffort === "none"
+				? (model.thinkingLevelMap?.off ?? "none")
+				: (model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort);
+		if (effort !== null) {
+			body.reasoning = {
+				effort,
+				summary: options.reasoningSummary ?? "auto",
+			};
+		}
 	}
 
 	return body;
-}
-
-function clampReasoningEffort(modelId: string, effort: string): string {
-	const id = modelId.includes("/") ? modelId.split("/").pop()! : modelId;
-	if (
-		(id.startsWith("gpt-5.2") || id.startsWith("gpt-5.3") || id.startsWith("gpt-5.4") || id.startsWith("gpt-5.5")) &&
-		effort === "minimal"
-	)
-		return "low";
-	if (id === "gpt-5.1" && effort === "xhigh") return "high";
-	if (id === "gpt-5.1-codex-mini") return effort === "high" || effort === "xhigh" ? "high" : "medium";
-	return effort;
 }
 
 function getServiceTierCostMultiplier(
@@ -997,7 +992,7 @@ async function processWebSocketStream(
 ): Promise<void> {
 	const { socket, entry, reused, release } = await acquireWebSocket(url, headers, options?.sessionId, options?.signal);
 	let keepConnection = true;
-	const useCachedContext = options?.transport === "websocket-cached";
+	const useCachedContext = options?.transport === "websocket-cached" || options?.transport === "auto";
 	// ChatGPT Codex Responses rejects `store: true` ("Store must be set to false").
 	// WebSocket continuation still works via connection-scoped previous_response_id state.
 	const fullBody = body;

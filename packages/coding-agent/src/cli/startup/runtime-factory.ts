@@ -7,7 +7,7 @@
  * process flow while runtime creation remains testable and reusable.
  */
 
-import { supportsXhigh } from "@mariozechner/pi-ai";
+import { getSupportedThinkingLevels } from "@mariozechner/pi-ai";
 import type { CreateAgentSessionRuntimeFactory } from "../../core/agent-session-runtime.js";
 import type { AgentSessionRuntimeDiagnostic } from "../../core/agent-session-services.js";
 import { createAgentSessionFromServices, createAgentSessionServices } from "../../core/agent-session-services.js";
@@ -128,7 +128,10 @@ export function createMainRuntimeFactory(options: MainRuntimeFactoryOptions): Cr
 			let effectiveThinking = created.session.thinkingLevel;
 			if (!created.session.model.reasoning) {
 				effectiveThinking = "off";
-			} else if (effectiveThinking === "xhigh" && !supportsXhigh(created.session.model)) {
+			} else if (
+				effectiveThinking === "xhigh" &&
+				!getSupportedThinkingLevels(created.session.model).includes("xhigh")
+			) {
 				effectiveThinking = "high";
 			}
 			if (effectiveThinking !== created.session.thinkingLevel) {

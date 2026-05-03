@@ -9,7 +9,7 @@
 
 import type { Agent, AgentTool, ThinkingLevel } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
-import { modelsAreEqual, supportsXhigh } from "@mariozechner/pi-ai";
+import { getSupportedThinkingLevels, modelsAreEqual } from "@mariozechner/pi-ai";
 import { DEFAULT_THINKING_LEVEL } from "../defaults.js";
 import type { ExtensionRunner } from "../extensions/index.js";
 import type { ModelRegistry } from "../model-registry.js";
@@ -268,7 +268,7 @@ export function getAvailableThinkingLevels(
  * Check whether the current model supports xhigh reasoning.
  */
 export function supportsSessionXhighThinking(target: Pick<AgentSessionModelTarget, "model">): boolean {
-	return target.model ? supportsXhigh(target.model) : false;
+	return target.model ? getSupportedThinkingLevels(target.model).includes("xhigh") : false;
 }
 
 /**

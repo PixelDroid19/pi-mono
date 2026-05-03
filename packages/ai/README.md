@@ -69,6 +69,7 @@ Unified LLM API with automatic model discovery, provider configuration, token an
 - **OpenCode Go**
 - **Fireworks** (uses Anthropic-compatible API)
 - **Kimi For Coding** (Moonshot AI, uses Anthropic-compatible API)
+- **Xiaomi MiMo** (uses Anthropic-compatible API; defaults to API billing endpoint, with separate Token Plan providers for `cn`/`ams`/`sgp` regions)
 - **Any OpenAI-compatible API**: Ollama, vLLM, LM Studio, etc.
 
 ## Installation
@@ -445,7 +446,7 @@ if (model.reasoning) {
 const response = await completeSimple(model, {
   messages: [{ role: 'user', content: 'Solve: 2x + 5 = 13' }]
 }, {
-  reasoning: 'medium'  // 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' (xhigh maps to high on non-OpenAI providers)
+  reasoning: 'medium'  // 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 });
 
 // Access thinking and text blocks
@@ -820,6 +821,8 @@ const response = await stream(ollamaModel, context, {
 
 Some OpenAI-compatible servers do not understand the `developer` role used for reasoning-capable models. For those providers, set `compat.supportsDeveloperRole` to `false` so the system prompt is sent as a `system` message instead. If the server also does not support `reasoning_effort`, set `compat.supportsReasoningEffort` to `false` too.
 
+Use model-level `thinkingLevelMap` to describe model-specific thinking controls. Keys are pi thinking levels (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`). Missing keys use provider defaults, string values are sent to the provider, and `null` marks a level unsupported.
+
 This commonly applies to Ollama, vLLM, SGLang, and similar OpenAI-compatible servers. You can set `compat` at the provider level or per model.
 
 ```typescript
@@ -834,6 +837,13 @@ const ollamaReasoningModel: Model<'openai-completions'> = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   contextWindow: 131072,
   maxTokens: 32000,
+  thinkingLevelMap: {
+    minimal: null,
+    low: null,
+    medium: null,
+    high: 'high',
+    xhigh: null,
+  },
   compat: {
     supportsDeveloperRole: false,
     supportsReasoningEffort: false,
@@ -1037,6 +1047,10 @@ In Node.js environments, you can set environment variables to avoid passing API 
 | MiniMax | `MINIMAX_API_KEY` |
 | OpenCode Zen / OpenCode Go | `OPENCODE_API_KEY` |
 | Kimi For Coding | `KIMI_API_KEY` |
+| Xiaomi MiMo (API billing) | `XIAOMI_API_KEY` |
+| Xiaomi MiMo Token Plan (China) | `XIAOMI_TOKEN_PLAN_CN_API_KEY` |
+| Xiaomi MiMo Token Plan (Amsterdam) | `XIAOMI_TOKEN_PLAN_AMS_API_KEY` |
+| Xiaomi MiMo Token Plan (Singapore) | `XIAOMI_TOKEN_PLAN_SGP_API_KEY` |
 | GitHub Copilot | `COPILOT_GITHUB_TOKEN` or `GH_TOKEN` or `GITHUB_TOKEN` |
 
 When set, the library automatically uses these keys:

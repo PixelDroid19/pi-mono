@@ -87,8 +87,8 @@ const weatherTool: AgentTool<
 			content: [{ type: "text", text: forecast }],
 			details: { city: params.city, forecast },
 		};
-	},
-};
+		},
+	};
 
 const agent = new Agent({
 	initialState: {
@@ -107,6 +107,22 @@ agent.subscribe((event) => {
 
 await agent.prompt("What is the weather in Bogota?");
 ```
+
+Low-level loop callers can set `shouldStopAfterTurn` to stop gracefully after the current turn completes:
+
+```typescript
+const stream = agentLoop(prompts, context, {
+	model,
+	convertToLlm,
+	shouldStopAfterTurn: async ({ context }) => {
+		return shouldCompactBeforeNextTurn(context.messages);
+	},
+});
+```
+
+`shouldStopAfterTurn` runs after `turn_end` is emitted and after the assistant response and any tool executions have completed normally. If it returns `true`, the loop emits `agent_end` and exits before polling steering or follow-up queues, and before starting another LLM call. It does not abort the provider stream, does not cancel running tools, and does not alter the assistant message stop reason.
+
+When you use the `Agent` class, assistant `message_end` processing is treated as a barrier before tool preflight begins. That means `beforeToolCall` sees agent state that already includes the assistant message that requested the tool call.
 
 ## Building an Agent
 
