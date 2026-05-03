@@ -1,9 +1,3 @@
-/**
- * Proxy stream function for apps that route LLM calls through a server.
- * The server manages auth and proxies requests to LLM providers.
- */
-
-// Internal import for JSON parsing utility
 import {
 	type AssistantMessage,
 	type AssistantMessageEvent,
@@ -16,7 +10,6 @@ import {
 	type ToolCall,
 } from "@mariozechner/pi-ai";
 
-// Create stream class matching ProxyMessageEventStream
 class ProxyMessageEventStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
 	constructor() {
 		super(
@@ -71,20 +64,26 @@ type ProxySerializableStreamOptions = Pick<
 >;
 
 export interface ProxyStreamOptions extends ProxySerializableStreamOptions {
-	/** Local abort signal for the proxy request */
+	/** Local abort signal for the proxy request. */
 	signal?: AbortSignal;
-	/** Auth token for the proxy server */
+	/** Bearer token accepted by the proxy server. */
 	authToken: string;
-	/** Proxy server URL (e.g., "https://genai.example.com") */
+	/** Base URL for the proxy server, for example `https://genai.example.com`. */
 	proxyUrl: string;
 }
 
 /**
- * Stream function that proxies through a server instead of calling LLM providers directly.
- * The server strips the partial field from delta events to reduce bandwidth.
- * We reconstruct the partial message client-side.
+ * Stream function that proxies through an application server instead of
+ * calling provider APIs directly.
  *
- * Use this as the `streamFn` option when creating an Agent that needs to go through a proxy.
+ * The proxy sends assistant delta events without the `partial` payload to keep
+ * the wire format small. This client reconstructs the partial assistant
+ * message so downstream consumers still receive standard `AssistantMessageEvent`
+ * objects.
+ *
+ * The server endpoint is expected to accept `POST /api/stream` with `{ model,
+ * context, options }` and return server-sent events whose `data:` payloads are
+ * `ProxyAssistantMessageEvent` objects.
  *
  * @example
  * ```typescript
@@ -117,7 +116,6 @@ export function streamProxy(model: Model<any>, context: Context, options: ProxyS
 	const stream = new ProxyMessageEventStream();
 
 	(async () => {
-		// Initialize the partial message that we'll build up from events
 		const partial: AssistantMessage = {
 			role: "assistant",
 			stopReason: "stop",
@@ -360,7 +358,6 @@ function processProxyEvent(
 
 		default: {
 			const _exhaustiveCheck: never = proxyEvent;
-			console.warn(`Unhandled proxy event type: ${(proxyEvent as any).type}`);
 			return undefined;
 		}
 	}

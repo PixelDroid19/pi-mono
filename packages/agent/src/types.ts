@@ -244,9 +244,7 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
  * }
  * ```
  */
-export interface CustomAgentMessages {
-	// Empty by default - apps extend via declaration merging
-}
+export interface CustomAgentMessages {}
 
 /**
  * AgentMessage: Union of LLM messages + custom messages.
@@ -348,18 +346,13 @@ export interface AgentContext {
  * idle only after those listeners finish.
  */
 export type AgentEvent =
-	// Agent lifecycle
 	| { type: "agent_start" }
 	| { type: "agent_end"; messages: AgentMessage[] }
-	// Turn lifecycle - a turn is one assistant response + any tool calls/results
 	| { type: "turn_start" }
 	| { type: "turn_end"; message: AgentMessage; toolResults: ToolResultMessage[] }
-	// Message lifecycle - emitted for user, assistant, and toolResult messages
 	| { type: "message_start"; message: AgentMessage }
-	// Only emitted for assistant messages during streaming
 	| { type: "message_update"; message: AgentMessage; assistantMessageEvent: AssistantMessageEvent }
 	| { type: "message_end"; message: AgentMessage }
-	// Tool execution lifecycle
 	| { type: "tool_execution_start"; toolCallId: string; toolName: string; args: any }
 	| { type: "tool_execution_update"; toolCallId: string; toolName: string; args: any; partialResult: any }
 	| { type: "tool_execution_end"; toolCallId: string; toolName: string; result: any; isError: boolean };
